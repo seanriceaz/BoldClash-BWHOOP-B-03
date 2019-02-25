@@ -10,7 +10,7 @@
 #define MAX_RATEYAW 500.0 // Was 360
 // use if your tx has no expo function
 // 0.00 to 1.00 , 0 = no exp
-// positive = less sensitive near center 
+// positive = less sensitive near center
 #define ACRO_EXPO_XY 0.8 // Pitch/Roll was 0
 #define ACRO_EXPO_YAW 0.6 //Was 0
 
@@ -101,7 +101,7 @@
 
 // rates / expert mode
 #define ARMING MULTI_CHAN_5
-#define IDLE_UP MULTI_CHAN_5
+// #define IDLE_UP MULTI_CHAN_5
 #define IDLE_THR 0.05f
 #define RATES MULTI_CHAN_9 //CH_ON?
 
@@ -153,9 +153,9 @@
 #define BOLDCLASH_716MM_24K
 
 // a filter which makes throttle feel faster
-//#define THROTTLE_TRANSIENT_COMPENSATION 
+//#define THROTTLE_TRANSIENT_COMPENSATION
 // if the quad resets , or for brushless ,try a lower value
-#define THROTTLE_TRANSIENT_COMPENSATION_FACTOR 7.0 
+#define THROTTLE_TRANSIENT_COMPENSATION_FACTOR 7.0
 
 // lost quad beeps using motors (30 sec timeout)
 //#define MOTOR_BEEPS
@@ -212,10 +212,10 @@
 //#define FLASH_SAVE2
 
 
-#define PID_ROTATE_ERRORS
+#define PID_ROTATE_ERRORS // Same as YAW_FIX in NFE
 
 // Removes roll and pitch bounce back after flips
-//#define TRANSIENT_WINDUP_PROTECTION
+#define TRANSIENT_WINDUP_PROTECTION
 
 
 
