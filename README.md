@@ -1,4 +1,29 @@
-[![Build Status](https://travis-ci.org/silver13/BoldClash-BWHOOP-B-03.svg?branch=master)](https://travis-ci.org/silver13/BoldClash-BWHOOP-B-03)
+## SilverWare - Sean's Beta65s Lite Tune
+
+The purpose for this version of the firmware is to enable certain features available in the NotFastEnuf version of Silverware at a lighter weight specifically to work on my Beta65s Lite drone.
+
+What was happening to me was the NFE version wasn't working correctly (my drone would flash, but yaw uncontrollably when "armed" and given a little throttle). This might have been because of some setting that was there, that I didn't set up correctly, but it was difficult to debug, so I', starting over from the root (Boldclash BWHOOP B03) and adding features from there.
+
+Here's what I'm shooting for and what's working.
+
+### Here's what's working:
+
+- Use transmitter switch for acro/level modes
+- More aggressive rates in acro/level mode
+
+### Here's what's partially working:
+
+- Arming Mode (Doesn't actually toggle on/off, but LED's flash)
+- LED toggle on transmitter switch (Have to switch on before switching off)
+- Yaw fix after flips/rolls - There's something here that doesn't work well on flips that I need to debug
+
+### Here's what I want to have, that doesn't work at all yet
+
+- Horizon Mode
+- Auto Bind - I have the code in there for this, but for some reason it doesnt work yet.
+- Overclocking
+
+_Everything below is from the forked repo._
 
 ## SilverWare - BoldClash BWHOOP B-03 version
 
