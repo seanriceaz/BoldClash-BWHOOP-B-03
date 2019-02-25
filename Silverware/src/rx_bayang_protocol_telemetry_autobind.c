@@ -59,7 +59,7 @@ THE SOFTWARE.
 #define HOPPING_NUMBER 4
 
 
-#ifdef RX_BAYANG_PROTOCOL_TELEMETRY
+#ifdef RX_BAYANG_PROTOCOL_TELEMETRY_AUTOBIND
 
 extern float rx[4];
 extern char aux[AUXNUMBER];
@@ -77,6 +77,8 @@ int rx_bind_load = 0;
 
 int rxmode = 0;
 int rf_chan = 0;
+int rx_ready = 0;
+int bind_safety = 0;
 
 unsigned long autobindtime = 0;
 int autobind_inhibit = 0;
@@ -219,6 +221,7 @@ writeregs( regs_1e , sizeof(regs_1e) );
 
           xn_writereg(0x25, rfchannel[rf_chan]);    // Set channel frequency 
           rxmode = RX_MODE_NORMAL;
+ 
           if ( telemetry_enabled ) packet_period = PACKET_PERIOD_TELEMETRY;
     }
     else
@@ -406,6 +409,8 @@ static int decodepacket(void)
 
 
 
+
+
 #ifdef USE_STOCK_TX
                 char trims[4];
                 trims[0] = rxdata[6] >> 2;
@@ -437,7 +442,25 @@ static int decodepacket(void)
 
                 aux[CH_RTH] = (rxdata[2] & 0x01) ? 1 : 0;   // rth channel
 
-
+							// This is for if we want to enable racemode/horizon.... not right now ;)
+                            // if (aux[LEVELMODE]){
+							// 	if (aux[RACEMODE] && !aux[HORIZON]){
+							// 		if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+							// 		if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+							// 		if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+							// 	}else if (aux[HORIZON]){
+							// 		if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+							// 		if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+							// 		if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+							// 	}else{
+							// 		if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+							// 		if ( ANGLE_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ANGLE_EXPO_PITCH);
+							// 		if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);}
+							// }else{
+							// 	if ( ACRO_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+							// 	if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+							// 	if ( ACRO_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
+							// }
                 if ( aux[LEVELMODE] )
                 {
                 // level mode expo
@@ -458,7 +481,6 @@ static int decodepacket(void)
                 }
                 if ( ACRO_EXPO_YAW > 0.01 )rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
                 }
-
 
                 for (int i = 0; i < AUXNUMBER - 2; i++)
                   {
@@ -538,7 +560,9 @@ void checkrx(void)
                       writeregs( rxaddr_regs , sizeof(rxaddr_regs) );
 
                       xn_writereg(0x25, rfchannel[rf_chan]);    // Set channel frequency 
+											
                       rxmode = RX_MODE_NORMAL;
+											 
 
 #ifdef SERIAL
                       printf(" BIND \n");
@@ -546,7 +570,7 @@ void checkrx(void)
                   }
             }
           else
-            {                   // normal mode  
+            {               // normal mode  
 #ifdef RXDEBUG
                 channelcount[rf_chan]++;
                 packettime = gettime() - lastrxtime;
@@ -583,7 +607,10 @@ void checkrx(void)
                       failcount++;
 #endif
                   }
-
+				bind_safety++;					
+				if (bind_safety > 9){								//requires 10 good frames to come in before rx_ready safety can be toggled to 1
+				rx_ready = 1;											// because aux channels initialize low and clear the binding while armed flag before aux updates high
+				bind_safety = 10;	}
             }                   // end normal rx mode
 
       }                         // end packet received

@@ -6,20 +6,20 @@
 
 // rate in deg/sec
 // for acro mode
-#define MAX_RATE 360.0
-#define MAX_RATEYAW 360.0
+#define MAX_RATE 860.0 // Was 360
+#define MAX_RATEYAW 500.0 // Was 360
 // use if your tx has no expo function
 // 0.00 to 1.00 , 0 = no exp
 // positive = less sensitive near center 
-#define ACRO_EXPO_XY 0.0
-#define ACRO_EXPO_YAW 0.0
+#define ACRO_EXPO_XY 0.8 // Pitch/Roll was 0
+#define ACRO_EXPO_YAW 0.6 //Was 0
 
 
 
 // max angle for level mode
 #define LEVEL_MAX_ANGLE 70.0f
-#define EXPO_XY 0.0
-#define EXPO_YAW 0.0
+#define EXPO_XY 0.55 //Pitch/roll Was 0
+#define EXPO_YAW 0.55 // Was 0
 
 #define LOW_RATES_MULTI 0.5f
 
@@ -78,8 +78,8 @@
 
 // transmitter type
 //#define USE_STOCK_TX
-#define USE_DEVO
-//#define USE_MULTI
+// #define USE_DEVO
+#define USE_MULTI
 
 // switch function selection
 
@@ -100,13 +100,16 @@
 // CHAN_5 - CHAN_10 - auto based on tx selection
 
 // rates / expert mode
-#define RATES CH_EXPERT
+#define ARMING MULTI_CHAN_5
+#define IDLE_UP MULTI_CHAN_5
+#define IDLE_THR 0.05f
+#define RATES MULTI_CHAN_9 //CH_ON?
 
-#define LEVELMODE CH_AUX1
+#define LEVELMODE MULTI_CHAN_6
 
 #define STARTFLIP CH_OFF
 
-#define LEDS_ON CH_ON
+#define LEDS_ON MULTI_CHAN_10
 
 // switch for fpv / other, requires fet
 // comment out to disable
@@ -173,7 +176,8 @@
 // Radio protocol selection
 // select only one
 
-#define RX_BAYANG_PROTOCOL_TELEMETRY
+//#define RX_BAYANG_PROTOCOL_TELEMETRY
+#define RX_BAYANG_PROTOCOL_TELEMETRY_AUTOBIND
 //#define RX_NRF24_BAYANG_TELEMETRY
 //#define RX_BAYANG_BLE_APP
 //#define RX_SBUS
@@ -208,7 +212,7 @@
 //#define FLASH_SAVE2
 
 
-//#define PID_ROTATE_ERRORS
+#define PID_ROTATE_ERRORS
 
 // Removes roll and pitch bounce back after flips
 //#define TRANSIENT_WINDUP_PROTECTION
@@ -226,6 +230,10 @@
 // roll positive right
 #define TRIM_PITCH 0.0
 #define TRIM_ROLL 0.0
+
+//Throttle must drop below this value if arming feature is enabled for arming to take place.  MIX_INCREASE_THROTTLE_3 if enabled
+//will also not activate on the ground untill this threshold is passed during takeoff for safety and better staging behavior.
+#define THROTTLE_SAFETY .10f
 
 // disable motors for testing
 //#define NOMOTORS

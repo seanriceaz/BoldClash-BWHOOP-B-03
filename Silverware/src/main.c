@@ -116,6 +116,10 @@ extern int rxmode;
 extern int failsafe;
 extern float hardcoded_pid_identifier;
 extern int onground;
+int in_air;
+int armed_state;
+int arming_release;
+int binding_while_armed = 1;
 
 // for led flash on gestures
 int ledcommand = 0;

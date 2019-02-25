@@ -82,12 +82,18 @@
 #define DEVO_CHAN_10 CH_RTH
 
 // multimodule mapping ( taranis )
-#define MULTI_CHAN_5 CH_FLIP
-#define MULTI_CHAN_6 CH_RTH
+// #define MULTI_CHAN_5 CH_FLIP
+// #define MULTI_CHAN_6 CH_RTH
+// #define MULTI_CHAN_7 CH_PIC
+// #define MULTI_CHAN_8 CH_VID
+// #define MULTI_CHAN_9 CH_HEADFREE
+// #define MULTI_CHAN_10 CH_INV
+#define MULTI_CHAN_5 CH_INV
+#define MULTI_CHAN_6 CH_FLIP
 #define MULTI_CHAN_7 CH_PIC
 #define MULTI_CHAN_8 CH_VID
 #define MULTI_CHAN_9 CH_HEADFREE
-#define MULTI_CHAN_10 CH_INV
+#define MULTI_CHAN_10 CH_RTH
 
 
 #ifdef USE_DEVO
