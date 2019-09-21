@@ -102,14 +102,14 @@
 //*************be active.  With LEVELMODE active - MCU will apply RACEMODE if racemode channel is on, HORIZON if horizon 
 //*************channel is on, or racemodeHORIZON if both channels are on - and will be standard LEVELMODE if neither 
 //*************racemode or horizon are switched on.
-#define ARMING CHAN_5
-#define IDLE_UP CHAN_5
-#define LEVELMODE CHAN_6
+#define ARMING CHAN_5 //Channel 6 on T8sg Plus Deviation
+#define IDLE_UP CHAN_5 //Channel 5 on T8sg Plus Deviation
+#define LEVELMODE CHAN_6 //Channel 10 on T8sg Plus Deviation
 #define RACEMODE  CHAN_7
 #define HORIZON   CHAN_8
 #define PIDPROFILE CHAN_9                //For switching stickAccelerator & stickTransition profiles on pid.c page
 #define RATES CHAN_ON
-#define LEDS_ON CHAN_10
+#define LEDS_ON CHAN_10 //Channel 5 on T8sg Plus Deviation
 
 // *************switch for fpv / other, requires fet
 // *************comment out to disable
