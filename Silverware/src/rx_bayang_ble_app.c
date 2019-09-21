@@ -35,17 +35,15 @@ THE SOFTWARE.
 
 #include "binary.h"
 #include "drv_spi.h"
-
 #include "project.h"
 #include "xn297.h"
 #include "drv_time.h"
 #include <stdio.h>
-#include "config.h"
 #include "defines.h"
-
 #include "rx_bayang.h"
-
 #include "util.h"
+
+
 #define RX_MODE_BIND RXMODE_BIND
 #define RX_MODE_NORMAL RXMODE_NORMAL
 
@@ -170,6 +168,9 @@ extern float rx[4];
 extern char aux[AUXNUMBER];
 extern char lastaux[AUXNUMBER];
 extern char auxchange[AUXNUMBER];
+extern float aux_analog[AUXNUMBER];
+extern float lastaux_analog[AUXNUMBER];
+extern char aux_analogchange[AUXNUMBER];
 
 char lasttrim[4];
 
@@ -177,6 +178,8 @@ char rfchannel[4];
 int rxaddress[5];
 int rxmode = 0;
 int rf_chan = 0;
+int rx_ready = 0;
+int bind_safety = 0;
 
 unsigned int total_time_in_air = 0;
 unsigned int time_throttle_on = 0;
@@ -198,7 +201,6 @@ delay(1000);
 
 char quad_name[6] = {'N' , 'O' , 'N' , 'A' , 'M' , 'E'};
 
-
 void rx_init()
 {
 
@@ -219,11 +221,10 @@ aux[CH_AUX1] = 1;
 	
 #ifdef RADIO_XN297L
 
-
 #ifndef TX_POWER
 #define TX_POWER 7
 #endif
-	
+ 	
 // Gauss filter amplitude - lowest
 static uint8_t demodcal[2] = { 0x39 , B00000001 };
 writeregs( demodcal , sizeof(demodcal) );
@@ -321,7 +322,6 @@ int	rxcheck = xn_readreg( 0x0f); // rx address pipe 5
 	if ( rxcheck != 0xc6) failloop(3);
 #endif	
 
-
 //fill with characters from MY_QUAD_NAME (just first 6 chars)
 int string_len = 0;
 while (string_len< 6)
@@ -336,8 +336,6 @@ for ( int i = string_len ; i < 6; i++)
 	{
 	quad_name[string_len] = ' '; //blank
 	}
-
-
 }
 
 
@@ -782,14 +780,12 @@ buf[L++] =  0x2F; //PID+TLM datatype_and_packetID;  // xxxxyyyy -> yyyy = 1111 p
 #endif
 
 buf[L++] = random_seed; //already custom entry - need to be randomized
-
 buf[L++]= quad_name[0];
 buf[L++]= quad_name[1];
 buf[L++]= quad_name[2];
 buf[L++]= quad_name[3];
 buf[L++]= quad_name[4];
 buf[L++]= quad_name[5];
-
 	
 extern int current_pid_term; //0 = pidkp, 1 = pidki, 2 = pidkd
 extern int current_pid_axis; //0 = roll, 1 = pitch, 2 = yaw
@@ -896,17 +892,29 @@ if (TLMorPID == 0)
 #endif
 
 buf[L++] = random_seed; //already custom entry - need to be randomized
+#ifdef MY_QUAD_NAME
+//fill with characters from MY_QUAD_NAME (just first 6 chars)
+int string_len = 0;
+while (string_len< 6)
+	  {
+			if (MY_QUAD_NAME[string_len]=='\0') break;
+			buf[L++] = (char) MY_QUAD_NAME[string_len];
+			string_len++;
+		}
 
-    
-buf[L++]= quad_name[0];
-buf[L++]= quad_name[1];
-buf[L++]= quad_name[2];
-buf[L++]= quad_name[3];
-buf[L++]= quad_name[4];
-buf[L++]= quad_name[5];
-
-
-    
+//fill the rest (up to 6 bytes) with blanks
+for ( int i = string_len ; i < 6; i++)
+	{
+	buf[L++] = ' '; //blank
+	}
+#else
+buf[L++]=(char)'N';
+buf[L++]=(char)'O';
+buf[L++]=(char)'N';
+buf[L++]=(char)'A';
+buf[L++]=(char)'M';
+buf[L++]=(char)'E';
+#endif
 buf[L++] =  0x00; //reserved for future use
 buf[L++] = packetpersecond_short;
 buf[L++] =  onground_and_bind; //binary xxxxabcd - xxxx = error code or warning, a -> 0 = stock TX, 1= other TX, b -> 0 = not failsafe, 1 = failsafe, c = 0 -> not bound, 1 -> bound, d = 0 -> in the air, 1 = on the ground;
@@ -978,6 +986,12 @@ float packettodata( int *  data)
 	return ( ( ( data[0]&0x0003) * 256 + data[1] ) - 512 ) * 0.001953125 ;	
 }
 
+float bytetodata(int byte)
+{
+    //return (byte - 128) * 0.0078125; // -1 to 1
+    return byte * 0.00390625; // 0 to 1
+}
+
 
 static int decodepacket( void)
 {
@@ -995,6 +1009,8 @@ static int decodepacket( void)
 			rx[2] = packettodata( &rxdata[10] );
 		// throttle		
 			rx[3] = ( (rxdata[8]&0x0003) * 256 + rxdata[9] ) * 0.000976562f;
+		
+
 
 
 
@@ -1021,45 +1037,60 @@ char trims[4];
 				      }
 #else			
 // this share the same numbers to the above CH_PIT_TRIM etc		 					
+					aux[CH_INV] = (rxdata[3] & 0x80) ? 1 : 0; // inverted flag
 					aux[CH_VID] = (rxdata[2] & 0x10) ? 1 : 0;
 												
 					aux[CH_PIC] = (rxdata[2] & 0x20) ? 1 : 0;						
 #endif
 							
-				aux[CH_INV] = (rxdata[3] & 0x80)?1:0; // inverted flag
 							
 			    aux[CH_FLIP] = (rxdata[2] & 0x08) ? 1 : 0;
 
+#ifdef USE_ANALOG_AUX
+			    aux[CH_EXPERT] = (rxdata[1] > 0x7F) ? 1 : 0;
+#else
 			    aux[CH_EXPERT] = (rxdata[1] == 0xfa) ? 1 : 0;
+#endif
 
 			    aux[CH_HEADFREE] = (rxdata[2] & 0x02) ? 1 : 0;
 
 			    aux[CH_RTH] = (rxdata[2] & 0x01) ? 1 : 0;	// rth channel
 
-
-
-                if ( aux[LEVELMODE] )
+#ifdef USE_ANALOG_AUX
+                // Assign all analog versions of channels based on boolean channel data
+                for (int i = 0; i < AUXNUMBER - 2; i++)
                 {
-                // level mode expo
-                if ( EXPO_XY > 0.01)
-                {
-                    rx[0] = rcexpo(rx[0], EXPO_XY);
-                    rx[1] = rcexpo(rx[1], EXPO_XY);
+                  if (i == CH_ANA_AUX1)
+                    aux_analog[CH_ANA_AUX1] = bytetodata(rxdata[1]);
+                  else if (i == CH_ANA_AUX2)
+                    aux_analog[CH_ANA_AUX2] = bytetodata(rxdata[13]);
+                  else
+                    aux_analog[i] = aux[i] ? 1.0 : 0.0;
+                  aux_analogchange[i] = 0;
+                  if (lastaux_analog[i] != aux_analog[i])
+                    aux_analogchange[i] = 1;
+                  lastaux_analog[i] = aux_analog[i];
                 }
-                if ( EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], EXPO_YAW);
-                }
-                else
-                {
-                // acro mode expo
-                if ( ACRO_EXPO_XY > 0.01 )
-                {
-                    rx[0] = rcexpo(rx[0], ACRO_EXPO_XY);
-                    rx[1] = rcexpo(rx[1], ACRO_EXPO_XY);
-                }
-                if ( ACRO_EXPO_YAW > 0.01 )rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
-                }
+#endif
 
-
+							if (aux[LEVELMODE]){
+								if (aux[RACEMODE] && !aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else if (aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else{
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ANGLE_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ANGLE_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);}
+							}else{
+								if ( ACRO_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+								if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+								if ( ACRO_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
+							}
 
 			for ( int i = 0 ; i < AUXNUMBER - 2 ; i++)
 			{
@@ -1109,7 +1140,11 @@ void checkrx(void)
 		    {		// rx startup , bind mode
 			    xn_readpayload(rxdata, 15);
 
+#ifdef USE_ANALOG_AUX
+			    if (rxdata[0] == 162)
+#else
 			    if (rxdata[0] == 164)
+#endif
 			      {	// bind packet
 				      rfchannel[0] = rxdata[6];
 				      rfchannel[1] = rxdata[7];
@@ -1171,7 +1206,10 @@ unsigned long temptime = gettime();
 			      }
 
 		    }		// end normal rx mode
-
+				bind_safety++;
+				if (bind_safety > 9){								//requires 10 good frames to come in before rx_ready safety can be toggled to 1
+				rx_ready = 1;											// because aux channels initialize low and clear the binding while armed flag before aux updates high
+				bind_safety = 10;	}
 	  }			// end packet received
 
 	beacon_sequence();

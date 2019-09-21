@@ -1,10 +1,9 @@
 
 #include "binary.h"
 #include "drv_spi.h"
-
 #include "project.h"
 #include "xn297.h"
-#include "hardware.h"
+#include "defines.h"
 
 // all cases except 3 wires radio
 #if !defined (SOFTSPI_3WIRE)
@@ -65,7 +64,7 @@ void xn_readpayload( int *data , int size )
 
 void xn_writerxaddress(  int *addr )	
 {
-    int index = 0;
+		int index = 0;
     spi_cson();
     spi_sendbyte(W_REGISTER | RX_ADDR_P0);
 	while(index<5)
@@ -79,7 +78,7 @@ spi_csoff();
 
 void xn_writetxaddress(  int *addr )	
 {
-    int index = 0;
+		int index = 0;
     spi_cson();
     spi_sendbyte(W_REGISTER|TX_ADDR);
 	while(index<5)

@@ -3,8 +3,9 @@
 #include "stm32f0xx_usart.h"
 #include <stdio.h>
 #include "drv_serial.h"
-#include "config.h"
 #include "drv_time.h"
+#include "defines.h"
+#include "util.h"
 
 
 // sbus input ( pin SWCLK after calibration) 
@@ -23,16 +24,20 @@ extern float rx[4];
 extern char aux[AUXNUMBER];
 extern char lastaux[AUXNUMBER];
 extern char auxchange[AUXNUMBER];
+extern float aux_analog[AUXNUMBER];
+extern float lastaux_analog[AUXNUMBER];
+extern char aux_analogchange[AUXNUMBER];
 int failsafe = 0;
 int rxmode = 0;
+int rx_ready = 0;
 
 
 // internal sbus variables
-#define RX_BUFF_SIZE 64
-uint8_t rx_buffer[RX_BUFF_SIZE];
+#define RX_BUFF_SIZE 64							//SPEK_FRAME_SIZE 16  
+uint8_t rx_buffer[RX_BUFF_SIZE];    //spekFrame[SPEK_FRAME_SIZE]
 uint8_t rx_start = 0;
 uint8_t rx_end = 0;
-uint16_t rx_time[RX_BUFF_SIZE];
+uint16_t rx_time[RX_BUFF_SIZE];			//????
 
 int framestarted = -1;
 uint8_t framestart = 0;
@@ -45,6 +50,7 @@ int last_byte = 0;
 unsigned long time_lastframe;
 int frame_received = 0;
 int rx_state = 0;
+int bind_safety = 0;
 uint8_t data[25];
 int channels[9];
 
@@ -80,8 +86,8 @@ void USART1_IRQHandler(void)
         elapsedticks = lastticks + ( maxticks - ticks);	
         }
 
-    if ( elapsedticks < 65536 ) rx_time[rx_end] = elapsedticks; 
-    else rx_time[rx_end] = 65535;
+    if ( elapsedticks < 65536 ) rx_time[rx_end] = elapsedticks; //
+    else rx_time[rx_end] = 65535;  //ffff
 
     lastticks = ticks;
        
@@ -110,14 +116,12 @@ void sbus_init(void)
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_14;	
-    GPIO_Init(GPIOA, &GPIO_InitStructure); 
 
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource14 , GPIO_AF_1);
-     
+    GPIO_InitStructure.GPIO_Pin = SERIAL_RX_PIN;
+    GPIO_Init(SERIAL_RX_PORT, &GPIO_InitStructure); 
+    GPIO_PinAFConfig(SERIAL_RX_PORT, SERIAL_RX_SOURCE , SERIAL_RX_CHANNEL);
+
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
-
 
     USART_InitTypeDef USART_InitStructure;
 
@@ -130,7 +134,9 @@ void sbus_init(void)
 
     USART_Init(USART1, &USART_InitStructure);
 // swap rx/tx pins
+#ifdef SERIAL_RX_SWD
     USART_SWAPPinCmd( USART1, ENABLE);
+#endif
 // invert signal ( default sbus )
    if (SBUS_INVERT) USART_InvPinCmd(USART1, USART_InvPin_Rx|USART_InvPin_Tx , ENABLE );
 
@@ -237,7 +243,7 @@ else if ( framestarted == 1)
   
     rx_start = rx_end;
     framestarted = 0;
-    
+    bind_safety++;
     } // end frame complete  
     
 }// end frame pending
@@ -307,15 +313,60 @@ if ( frame_received )
         channels[2]-= 173; 
         rx[3] = 0.000610128f * channels[2]; 
         
-        if ( rx[3] > 1 ) rx[3] = 1;
-        
-        aux[CH_FLIP] = (channels[5] > 993) ? 1 : 0;
-		aux[CH_EXPERT] = (channels[6] > 993) ? 1 : 0;
-		aux[CH_HEADFREE] = (channels[7] > 993) ? 1 : 0;
-		aux[CH_RTH] = (channels[8] > 993) ? 1 : 0;
+				if ( rx[3] > 1 ) rx[3] = 1;	
+				if ( rx[3] < 0 ) rx[3] = 0;
+				
+							if (aux[LEVELMODE]){
+								if (aux[RACEMODE] && !aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else if (aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else{
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ANGLE_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ANGLE_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);}
+							}else{
+								if ( ACRO_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+								if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+								if ( ACRO_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
+							}
+							
+		    aux[CHAN_5] = (channels[4] > 993) ? 1 : 0;
+		    aux[CHAN_6] = (channels[5] > 993) ? 1 : 0;
+		    aux[CHAN_7] = (channels[6] > 993) ? 1 : 0;
+		    aux[CHAN_8] = (channels[7] > 993) ? 1 : 0;
+		    aux[CHAN_9] = (channels[8] > 993) ? 1 : 0;
+
+#ifdef USE_ANALOG_AUX
+        // Map to range 0 to 1
+        aux_analog[CHAN_5] = (channels[4] - 173) * 0.000610128f;
+        aux_analog[CHAN_6] = (channels[5] - 173) * 0.000610128f;
+        aux_analog[CHAN_7] = (channels[6] - 173) * 0.000610128f;
+        aux_analog[CHAN_8] = (channels[7] - 173) * 0.000610128f;
+        aux_analog[CHAN_9] = (channels[8] - 173) * 0.000610128f;
+
+        aux_analogchange[CHAN_5] = (aux_analog[CHAN_5] != lastaux_analog[CHAN_5]) ? 1 : 0;
+        aux_analogchange[CHAN_6] = (aux_analog[CHAN_6] != lastaux_analog[CHAN_6]) ? 1 : 0;
+        aux_analogchange[CHAN_7] = (aux_analog[CHAN_7] != lastaux_analog[CHAN_7]) ? 1 : 0;
+        aux_analogchange[CHAN_8] = (aux_analog[CHAN_8] != lastaux_analog[CHAN_8]) ? 1 : 0;
+        aux_analogchange[CHAN_9] = (aux_analog[CHAN_9] != lastaux_analog[CHAN_9]) ? 1 : 0;
+
+        lastaux_analog[CHAN_5] = aux_analog[CHAN_5];
+        lastaux_analog[CHAN_6] = aux_analog[CHAN_6];
+        lastaux_analog[CHAN_7] = aux_analog[CHAN_7];
+        lastaux_analog[CHAN_8] = aux_analog[CHAN_8];
+        lastaux_analog[CHAN_9] = aux_analog[CHAN_9];
+#endif
         
         time_lastframe = gettime(); 
-        if (sbus_stats) stat_frames_accepted++;       
+        if (sbus_stats) stat_frames_accepted++;
+				if (bind_safety > 9){								//requires 10 good frames to come in before rx_ready safety can be toggled to 1
+				rx_ready = 1;											// because aux channels initialize low and clear the binding while armed flag before aux updates high
+				bind_safety = 10;}								
     }
  
 

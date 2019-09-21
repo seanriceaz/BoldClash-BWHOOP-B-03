@@ -56,9 +56,20 @@
   #define DSHOT_T1H_TIME 		(DSHOT_BIT_TIME*0.60 + 0.05 )
 #endif
 
+
+#include "project.h"
+#include "defines.h"
+#include "drv_pwm.h"
+#include "drv_time.h"
+#include "util.h"
+#include "drv_dshot.h"
+
+
 // IDLE_OFFSET is added to the throttle. Adjust its value so that the motors
 // still spin at minimum throttle.
+#ifndef IDLE_OFFSET
 #define IDLE_OFFSET 40
+#endif
 
 // READ THIS:
 
@@ -73,16 +84,8 @@
 
 // Dshot150 is pretty insensitive to pin mixes and wire capacitance
 
-#include "project.h"
 
-#include "config.h"
-#include "defines.h"
-#include "drv_pwm.h"
-#include "drv_time.h"
-#include "hardware.h"
-#include "util.h"
-#include "drv_dshot.h"
-#include "config.h"
+
 
 #ifdef USE_DSHOT_DMA_DRIVER
 
@@ -498,10 +501,10 @@ void motorbeep()
 			}
 
 			if ( beep_command != 0 ) {
-				make_packet( 0, beep_command, false );
-				make_packet( 1, beep_command, false );
-				make_packet( 2, beep_command, false );
-				make_packet( 3, beep_command, false );
+				make_packet( 0, beep_command, true );
+				make_packet( 1, beep_command, true );
+				make_packet( 2, beep_command, true );
+				make_packet( 3, beep_command, true );
 				dshot_dma_start();
 			}
 		}

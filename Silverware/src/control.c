@@ -26,7 +26,6 @@ THE SOFTWARE.
 #include <math.h>
 
 #include "pid.h"
-#include "config.h"
 #include "util.h"
 #include "drv_pwm.h"
 #include "control.h"
@@ -37,22 +36,23 @@ THE SOFTWARE.
 #include "drv_fmc.h"
 #include "flip_sequencer.h"
 #include "gestures.h"
-#include "defines.h"
 #include "led.h"
 
 
-extern float rx[];
-extern float gyro[3];
-extern int failsafe;
-extern float pidoutput[PIDNUMBER];
-extern float setpoint[3];
 
+float	throttle;
 int idle_state;
 extern int armed_state;
 extern int in_air;
 extern int arming_release;
 extern int binding_while_armed;
 extern int rx_ready;
+
+extern float rx[];
+extern float gyro[3];
+extern int failsafe;
+extern float pidoutput[PIDNUMBER];
+extern float setpoint[3];
 
 extern float angleerror[];
 extern float attitude[];
@@ -71,6 +71,8 @@ extern float looptime;
 
 extern char auxchange[AUXNUMBER];
 extern char aux[AUXNUMBER];
+extern float aux_analog[AUXNUMBER];
+extern char aux_analogchange[AUXNUMBER];
 
 extern int ledcommand;
 extern int ledblink;
@@ -99,12 +101,55 @@ float underthrottlefilt = 0;
 
 float rxcopy[4];
 
+#ifdef BETAFLIGHT_RATES
+#define SETPOINT_RATE_LIMIT 1998.0f
+#define RC_RATE_INCREMENTAL 14.54f
+
+static inline float constrainf(float amt, float low, float high)
+{
+    if (amt < low)
+        return low;
+    else if (amt > high)
+        return high;
+    else
+        return amt;
+}
+
+static float calcBFRatesRad(int axis)
+{
+    float rcRate, superExpo;
+    if (axis == ROLL) {
+        rcRate = (float) BF_RC_RATE_ROLL;
+        superExpo = (float) BF_SUPER_RATE_ROLL;
+    } else if (axis == PITCH) {
+        rcRate = (float) BF_RC_RATE_PITCH;
+        superExpo = (float) BF_SUPER_RATE_PITCH;
+	} else {
+        rcRate = (float) BF_RC_RATE_YAW;
+        superExpo = (float) BF_SUPER_RATE_YAW;
+    }
+    if (rcRate > 2.0f) {
+        rcRate += RC_RATE_INCREMENTAL * (rcRate - 2.0f);
+    }
+    const float rcCommandfAbs = rxcopy[axis] > 0 ? rxcopy[axis] : -rxcopy[axis];
+    float angleRate = 200.0f * rcRate * rxcopy[axis];
+    if (superExpo) {
+        const float rcSuperfactor = 1.0f / (constrainf(1.0f - (rcCommandfAbs * superExpo), 0.01f, 1.00f));
+        angleRate *= rcSuperfactor;
+    }
+    return constrainf(angleRate, -SETPOINT_RATE_LIMIT, SETPOINT_RATE_LIMIT) * (float) DEGTORAD;
+}
+#endif
+
 void control( void)
 {	
 
-// rates / expert mode
+// high-low rates switch 
 float rate_multiplier = 1.0;
-	
+
+#if (defined USE_ANALOG_AUX && defined ANALOG_RATE_MULT)
+	rate_multiplier = aux_analog[ANALOG_RATE_MULT];
+#else
 	if ( aux[RATES]  )
 	{		
 		
@@ -114,7 +159,7 @@ float rate_multiplier = 1.0;
 		rate_multiplier = LOW_RATES_MULTI;
 	}
 	// make local copy
-	
+#endif
 	
 #ifdef INVERTED_ENABLE	
     extern int pwmdir;
@@ -127,12 +172,22 @@ float rate_multiplier = 1.0;
 	for ( int i = 0 ; i < 3 ; i++)
 	{
 		#ifdef STOCK_TX_AUTOCENTER
-		rxcopy[i] = (rx[i] - autocenter[i])* rate_multiplier;
+		rxcopy[i] = (rx[i] - autocenter[i]);
 		#else
-		rxcopy[i] = rx[i] * rate_multiplier;
+		rxcopy[i] = rx[i];
 		#endif
-	}
-
+		#ifdef STICKS_DEADBAND
+		if ( fabsf( rxcopy[ i ] ) <= STICKS_DEADBAND ) {
+			rxcopy[ i ] = 0.0f;
+		} else {
+			if ( rxcopy[ i ] >= 0 ) {
+				rxcopy[ i ] = mapf( rxcopy[ i ], STICKS_DEADBAND, 1, 0, 1 );
+			} else {
+				rxcopy[ i ] = mapf( rxcopy[ i ], -STICKS_DEADBAND, -1, 0, -1 );
+			}
+		}
+		#endif
+	 }
 
 #ifndef DISABLE_FLIP_SEQUENCER	
   flip_sequencer();
@@ -158,60 +213,174 @@ pid_precalc();
 
 
 	// flight control
-	if (aux[LEVELMODE]&&!acro_override)
-	  {	 
-          // level mode
-      	extern void stick_vector( float rx_input[] , float maxangle);
-		extern float errorvect[]; // level mode angle error calculated by stick_vector.c					
-        extern float GEstG[3]; // gravity vector for yaw feedforward
-        float yawerror[3] = {0}; // yaw rotation vector
 
-        // calculate roll / pitch error
-		stick_vector( rxcopy , 0 ); 
-           
-        float yawrate = rxcopy[2] * (float) MAX_RATEYAW * DEGTORAD;            
-        // apply yaw from the top of the quad            
-        yawerror[0] = GEstG[1] * yawrate;
-        yawerror[1] = - GEstG[0] * yawrate;
-        yawerror[2] = GEstG[2] * yawrate;
+	float rates[3];
 
-        // pitch and roll
-		for ( int i = 0 ; i <=1; i++)
-			{
-            angleerror[i] = errorvect[i] ;
-			error[i] = apid(i) + yawerror[i] - gyro[i];
+#ifndef BETAFLIGHT_RATES
+    rates[0] = rate_multiplier * rxcopy[0] * (float) MAX_RATE * DEGTORAD;
+    rates[1] = rate_multiplier * rxcopy[1] * (float) MAX_RATE * DEGTORAD;
+    rates[2] = rate_multiplier * rxcopy[2] * (float) MAX_RATEYAW * DEGTORAD;
+#else
+    rates[0] = rate_multiplier * calcBFRatesRad(0);
+    rates[1] = rate_multiplier * calcBFRatesRad(1);
+    rates[2] = rate_multiplier * calcBFRatesRad(2);
+#endif
+        
+if (aux[LEVELMODE]&&!acro_override){
+	extern void stick_vector( float rx_input[] , float maxangle);
+	extern float errorvect[]; // level mode angle error calculated by stick_vector.c	
+	extern float GEstG[3]; // gravity vector for yaw feedforward
+	float yawerror[3] = {0}; // yaw rotation vector
+	// calculate roll / pitch error
+	stick_vector( rxcopy , 0 );
+	// apply yaw from the top of the quad 
+	yawerror[0] = GEstG[1] * rates[2];
+	yawerror[1] = - GEstG[0] * rates[2];
+	yawerror[2] = GEstG[2] * rates[2];
+	
+	
+	// *************************************************************************
+	//horizon modes tuning variables
+	// *************************************************************************
+	// 1.0 is pure angle based transition, 0.0 is pure stick defelction based transition, values inbetween are a mix of both.  Adjust from 0 to 1
+	float HORIZON_SLIDER = 0.3f;
+	//leveling transitions into acro below this angle - above this angle is all acro.  DO NOT SET ABOVE 85 DEGREES!
+	float HORIZON_ANGLE_TRANSITION = 55.0f;
+	//leveling transitions into acro below this stick position - beyond this stick position is all acro. Adjust from 0 to 1
+	float HORIZON_STICK_TRANSITION = 0.95f;
+	// *************************************************************************
+	// *************************************************************************
+	
+	
+	if (aux[RACEMODE] && !aux[HORIZON]){ //racemode with angle behavior on roll ais
+			if (GEstG[2] < 0 ){ // acro on roll and pitch when inverted
+					error[0] = rates[0] - gyro[0];
+					error[1] = rates[1] - gyro[1];
+			}else{
+					//roll is leveled to max angle limit
+					angleerror[0] = errorvect[0] ; 
+					error[0] = apid(0) + yawerror[0] - gyro[0];
+					//pitch is acro 
+					error[1] = rates[1] - gyro[1];}
+			// yaw
+			error[2] = yawerror[2] - gyro[2];
+		
+	}else if(aux[RACEMODE] && aux[HORIZON]){	//racemode with horizon behavior on roll axis	
+			float inclinationRoll	= attitude[0];
+			float inclinationPitch = attitude[1];
+			float inclinationMax;
+			if (fabsf(inclinationRoll) >= fabsf(inclinationPitch)){
+					inclinationMax = fabsf(inclinationRoll);
+			}else{
+					inclinationMax = fabsf(inclinationPitch);}
+			float angleFade;
+			// constrains acroFade variable between 0 and 1
+			if (inclinationMax <= HORIZON_ANGLE_TRANSITION){
+					angleFade = inclinationMax/HORIZON_ANGLE_TRANSITION;
+			}else{
+					angleFade = 1;}
+			float stickFade;
+			float deflection = fabsf(rxcopy[0]);
+			if (deflection <= HORIZON_STICK_TRANSITION){
+					stickFade = deflection/HORIZON_STICK_TRANSITION;
+			}else{
+					stickFade = 1;}
+			float fade = (stickFade *(1-HORIZON_SLIDER))+(HORIZON_SLIDER * angleFade);
+			// apply acro to roll for inverted behavior
+			if (GEstG[2] < 0 ){
+					error[0] = rates[0] - gyro[0];
+					error[1] = rates[1] - gyro[1];
+			}else{ // apply a transitioning mix of acro and level behavior inside of stick HORIZON_TRANSITION point and full acro beyond stick HORIZON_TRANSITION point					
+					angleerror[0] = errorvect[0] ;
+					// roll angle strength fades out as sticks approach HORIZON_TRANSITION while acro stength fades in according to value of acroFade factor
+					error[0] = ((apid(0) + yawerror[0] - gyro[0]) * (1 - fade)) + (fade * (rates[0] - gyro[0]));
+					//pitch is acro
+					error[1] = rates[1] - gyro[1];
 			}
-        // yaw
-		error[2] = yawerror[2]  - gyro[2];
-	  }
-	else
-	  {	// rate mode
-
-      setpoint[0] = rxcopy[0] * (float) MAX_RATE * DEGTORAD;
-			setpoint[1] = rxcopy[1] * (float) MAX_RATE * DEGTORAD;
-			setpoint[2] = rxcopy[2] * (float) MAX_RATEYAW * DEGTORAD;
-
-			for ( int i = 0; i < 3; i++ ) {
-				error[i] = setpoint[i] - gyro[i];
+	
+			// yaw
+			error[2] = yawerror[2]  - gyro[2];  
+		
+	}else if(!aux[RACEMODE] && aux[HORIZON]){ //horizon overrites standard level behavior	
+			//pitch and roll
+			for ( int i = 0 ; i <=1; i++){	
+			  	float inclinationRoll	= attitude[0];
+					float inclinationPitch = attitude[1];
+					float inclinationMax;
+					if (fabsf(inclinationRoll) >= fabsf(inclinationPitch)){
+						inclinationMax = fabsf(inclinationRoll);
+					}else{
+						inclinationMax = fabsf(inclinationPitch);}
+					float angleFade;
+					// constrains acroFade variable between 0 and 1
+					if (inclinationMax <= HORIZON_ANGLE_TRANSITION){
+						angleFade = inclinationMax/HORIZON_ANGLE_TRANSITION;
+					}else{
+						angleFade = 1;
+					}
+					float stickFade;
+					float deflection = fabsf(rxcopy[i]);
+					if (deflection <= HORIZON_STICK_TRANSITION){
+						stickFade = deflection/HORIZON_STICK_TRANSITION;
+					}else{
+						stickFade = 1;
+					}
+					float fade = (stickFade *(1-HORIZON_SLIDER))+(HORIZON_SLIDER * angleFade);
+					// apply acro to roll and pitch sticks for inverted behavior
+					if (GEstG[2] < 0 ){
+						error[i] = rates[i] - gyro[i];
+					}else{ // apply a transitioning mix of acro and level behavior inside of stick HORIZON_TRANSITION point and full acro beyond stick HORIZON_TRANSITION point					
+						angleerror[i] = errorvect[i] ;
+						//  angle strength fades out as sticks approach HORIZON_TRANSITION while acro stength fades in according to value of acroFade factor
+						error[i] = ((apid(i) + yawerror[i] - gyro[i]) * (1 - fade)) + (fade * (rates[i] - gyro[i]));
+					}
 			}
+			// yaw
+			error[2] = yawerror[2]  - gyro[2];  
+			
+	}else{ //standard level mode
+	    // pitch and roll
+			for ( int i = 0 ; i <=1; i++){
+					angleerror[i] = errorvect[i] ;    
+					error[i] = apid(i) + yawerror[i] - gyro[i];
+			}
+      // yaw
+			error[2] = yawerror[2]  - gyro[2];
+		} 
+}else{	// rate mode
+
+    setpoint[0] = rates[0];
+    setpoint[1] = rates[1];
+    setpoint[2] = rates[2];
+          
+	for ( int i = 0; i < 3; i++ ) {
+		error[i] = setpoint[i] - gyro[i];
+	}
+}
 
 
-	  }
-
-    #ifdef PID_ROTATE_ERRORS
-			rotateErrors();
-    #endif
-
+ #ifdef YAW_FIX
+{	
+	rotateErrors();
 	pid(0);
 	pid(1);
-	pid(2);
+	pid(2);		}
+ #else 	
+{
+  pid(0);
+	pid(1);
+	pid(2);	
 
-float	throttle;
+}
+
+#endif
+
 
 #ifndef THROTTLE_SAFETY
 	#define THROTTLE_SAFETY .15f
 #endif
 
+		
 #ifndef ARMING
  armed_state = 1;																							 									 // if arming feature is disabled - quad is always armed
 #else																												  											// CONDITION: arming feature is enabled
@@ -236,32 +405,39 @@ float	throttle;
 		idle_state = 0;
 	}else{ idle_state = 1;}
 #endif
-
+	
 #ifndef IDLE_THR
-	#define IDLE_THR .05f
+	#define IDLE_THR .001f
 #endif
 
-if (armed_state == 0){                                     												// CONDITION: armed state variable is 0 so quad is DISARMED					
-	throttle = 0;																																		//						override throttle to 0
-	in_air = 0;																																			//						flag in air variable as NOT IN THE AIR for mix throttle increase safety
-	arming_release = 0;																															//						arming release flag is set to not cleared to reactivate the throttle safety limit for the next arming event
+	if (armed_state == 0){                                     												// CONDITION: armed state variable is 0 so quad is DISARMED					
+		throttle = 0;																																		//						override throttle to 0
+		in_air = 0;																																			//						flag in air variable as NOT IN THE AIR for mix throttle increase safety
+		arming_release = 0;																															//						arming release flag is set to not cleared to reactivate the throttle safety limit for the next arming event
+	
+	}else{                                                    	  										// CONDITION: armed state variable is 1 so quad is ARMED							 
+			if (idle_state == 0){                                     										//            CONDITION: idle up is turned OFF				
+				if ( rx[3] < 0.05f ){
+					throttle = 0;                      																				//   											set a small dead zone where throttle is zero and
+				  in_air = 0;																																//												deactivate mix increase 3 since throttle is off
+				}else{ 
+					throttle = (rx[3] - 0.05f)*1.05623158f;            												//                        map the remainder of the the active throttle region to 100%
+					in_air = 1;}																															//												activate mix increase since throttle is on
+			}else{ 																																				//						CONDITION: idle up is turned ON												
+				throttle =  (float) IDLE_THR + rx[3] * (1.0f - (float) IDLE_THR);						//            						throttle range is mapped from idle throttle value to 100%							  
+				if ((rx[3] > THROTTLE_SAFETY) && (in_air == 0)) in_air = 1; 			  				//            						change the state of in air flag when first crossing the throttle 
+			}																																							//            						safety value to indicate craft has taken off for mix increase safety
+	}
 
-}else{                                                    	  										// CONDITION: armed state variable is 1 so quad is ARMED							 
-		if (idle_state == 0){                                     										//            CONDITION: idle up is turned OFF				
-			if ( rx[3] < 0.05f ){
-				throttle = 0;                      																				//   											set a small dead zone where throttle is zero and
-				in_air = 0;																																//												deactivate mix increase 3 since throttle is off
-			}else{ 
-				throttle = (rx[3] - 0.05f)*1.05623158f;            												//                        map the remainder of the the active throttle region to 100%
-				in_air = 1;}																															//												activate mix increase since throttle is on
-		}else{ 																																				//						CONDITION: idle up is turned ON												
-			throttle =  (float) IDLE_THR + rx[3] * (1.0f - (float) IDLE_THR);						//            						throttle range is mapped from idle throttle value to 100%							  
-			if ((rx[3] > THROTTLE_SAFETY) && (in_air == 0)) in_air = 1; 			  				//            						change the state of in air flag when first crossing the throttle 
-		}																																							//            						safety value to indicate craft has taken off for mix increase safety
+#ifdef STICK_TRAVEL_CHECK																				//This feature completely disables throttle and allows visual feedback if control inputs reach full throws
+//Stick endpoints check tied to aux channel stick gesture
+if (aux[CH_AUX1]){
+	throttle = 0;
+	if ((rx[0]<= -0.99f) || (rx[0] >= 0.99f) || (rx[1] <= -0.99f) || (rx[1] >= 0.99f) || (rx[2] <= -0.99f) || (rx[2] >= 0.99f) || (rx[3] <= 0.0f) || (rx[3] >= 0.99f)){
+		ledcommand = 1;}
 }
-// map throttle so under 10% it is zero	
-if ( rx[3] < 0.1f ) throttle = 0;
-else throttle = (rx[3] - 0.1f)*1.11111111f;
+#endif
+
 
 
 // turn motors off if throttle is off and pitch / roll sticks are centered
@@ -313,6 +489,7 @@ else throttle = (rx[3] - 0.1f)*1.11111111f;
 			}
 		#endif				
 		
+	
 		throttle = 0;										//zero out throttle so it does not come back on as idle up value if enabled			
 		onground = 1;
 		thrsum = 0;
@@ -367,40 +544,78 @@ extern float throttlehpf( float in );
 
 		    }
 #endif
-	
-            
+	           
             
 #ifdef LVC_LOWER_THROTTLE
-extern float vbatt_comp;
-extern float vbattfilt;
+	
+	#ifdef SWITCHABLE_FEATURE_2
+	extern float vbatt_comp;
+	extern float vbattfilt;
+	extern int flash_feature_2;
+	static float throttle_i = 0.0f;
+	float throttle_p = 0.0f;
+		if (flash_feature_2 == 1){
+			// can be made into a function
+			if (vbattfilt < (float) LVC_LOWER_THROTTLE_VOLTAGE_RAW ) 
+			throttle_p = ((float) LVC_LOWER_THROTTLE_VOLTAGE_RAW - vbattfilt) *(float) LVC_LOWER_THROTTLE_KP;
+			// can be made into a function
+			if (vbatt_comp < (float) LVC_LOWER_THROTTLE_VOLTAGE) 
+			throttle_p = ((float) LVC_LOWER_THROTTLE_VOLTAGE - vbatt_comp) *(float) LVC_LOWER_THROTTLE_KP;	
 
-static float throttle_i = 0.0f;
+			if ( throttle_p > 1.0f ) throttle_p = 1.0f;	
 
- float throttle_p = 0.0f;
+			if ( throttle_p > 0 ) 
+			{
+				throttle_i += throttle_p * 0.0001f; //ki
+			}
+			else throttle_i -= 0.001f;// ki on release
 
-// can be made into a function
-if (vbattfilt < (float) LVC_LOWER_THROTTLE_VOLTAGE_RAW ) 
-   throttle_p = ((float) LVC_LOWER_THROTTLE_VOLTAGE_RAW - vbattfilt) *(float) LVC_LOWER_THROTTLE_KP;
-// can be made into a function
-if (vbatt_comp < (float) LVC_LOWER_THROTTLE_VOLTAGE) 
-   throttle_p = ((float) LVC_LOWER_THROTTLE_VOLTAGE - vbatt_comp) *(float) LVC_LOWER_THROTTLE_KP;	
+			if ( throttle_i > 0.5f) throttle_i = 0.5f;
+			if ( throttle_i < 0.0f) throttle_i = 0.0f;
 
-if ( throttle_p > 1.0f ) throttle_p = 1.0f;
+			throttle -= throttle_p + throttle_i;
+		}else{
+			//do nothing - feature is disabled via stick gesture
+		}
+	#else 
+	extern float vbatt_comp;
+	extern float vbattfilt;
+	static float throttle_i = 0.0f;
+	float throttle_p = 0.0f;
+		// can be made into a function
+		if (vbattfilt < (float) LVC_LOWER_THROTTLE_VOLTAGE_RAW ) 
+		throttle_p = ((float) LVC_LOWER_THROTTLE_VOLTAGE_RAW - vbattfilt) *(float) LVC_LOWER_THROTTLE_KP;
+		// can be made into a function
+		if (vbatt_comp < (float) LVC_LOWER_THROTTLE_VOLTAGE) 
+		throttle_p = ((float) LVC_LOWER_THROTTLE_VOLTAGE - vbatt_comp) *(float) LVC_LOWER_THROTTLE_KP;	
 
-if ( throttle_p > 0 ) 
-{
-    throttle_i += throttle_p * 0.0001f; //ki
-}
-else throttle_i -= 0.001f;// ki on release
+		if ( throttle_p > 1.0f ) throttle_p = 1.0f;
 
-if ( throttle_i > 0.5f) throttle_i = 0.5f;
-if ( throttle_i < 0.0f) throttle_i = 0.0f;
+		if ( throttle_p > 0 ) 
+		{
+			throttle_i += throttle_p * 0.0001f; //ki
+		}
+		else throttle_i -= 0.001f;// ki on release
 
-throttle -= throttle_p + throttle_i;
+		if ( throttle_i > 0.5f) throttle_i = 0.5f;
+		if ( throttle_i < 0.0f) throttle_i = 0.0f;
+
+		throttle -= throttle_p + throttle_i;		
+	#endif
 #endif
 
+
 #ifdef INVERT_YAW_PID
-pidoutput[2] = -pidoutput[2];			
+	#ifdef SWITCHABLE_FEATURE_3
+	extern int flash_feature_3;
+		if (flash_feature_3 == 0){
+			pidoutput[2] = -pidoutput[2];
+		}else{
+			//do nothing
+		}
+	#else
+		pidoutput[2] = -pidoutput[2];
+	#endif
 #endif
 	
 #ifdef INVERTED_ENABLE
@@ -427,7 +642,16 @@ else
 
 #ifdef INVERT_YAW_PID
 // we invert again cause it's used by the pid internally (for limit)
-pidoutput[2] = -pidoutput[2];			
+	#ifdef SWITCHABLE_FEATURE_3
+	extern int flash_feature_3;
+		if (flash_feature_3 == 0){
+			pidoutput[2] = -pidoutput[2];
+		}else{
+			//do nothing
+		}
+	#else
+		pidoutput[2] = -pidoutput[2];
+	#endif		
 #endif
 
 		for ( int i = 0 ; i <= 3 ; i++)
@@ -436,23 +660,67 @@ pidoutput[2] = -pidoutput[2];
 		mix[i] = motorfilter(  mix[i] , i);
 		#endif	
 		
-        #ifdef MOTOR_FILTER2_ALPHA	
-        float motorlpf( float in , int x) ;           
+       		#ifdef MOTOR_FILTER2_ALPHA	
+       		 float motorlpf( float in , int x) ;           
 		mix[i] = motorlpf(  mix[i] , i);
 		#endif
-
+			
 		#ifdef MOTOR_KAL
       		float motor_kalman( float in , int x);
        		mix[i] = motor_kalman(  mix[i] , i);  
-       	#endif 
+       		#endif 
+			
+		#ifdef TORQUE_BOOST
+       		float motord( float in , int x);           
+		mix[i] = motord(  mix[i] , i);
+		#endif
+       		}
 
-		#ifdef MOTOR_KAL_2ND
-      		float  motor_kalman_2nd( float in , int x) ;
-       		mix[i] = motor_kalman_2nd(  mix[i] , i);  
-       	#endif             
-        }
 
-        
+// MIXER SCALING
+
+#ifdef BRUSHLESS_MIX_SCALING
+		#undef MIX_LOWER_THROTTLE
+		#undef MIX_INCREASE_THROTTLE
+		#undef MIX_LOWER_THROTTLE_3
+		#undef MIX_INCREASE_THROTTLE_3
+
+         static int mixScaling;
+         if (onground) mixScaling = 0;
+         // only enable once really in the air
+         else if (in_air) mixScaling = 1;
+         if (mixScaling) {
+						 //ledcommand=1;
+             float minMix = 1000.0f;
+             float maxMix = -1000.0f;
+             for (int i = 0; i<4; i++) {
+                 if (mix[i] < minMix) minMix = mix[i];
+                 if (mix[i] > maxMix) maxMix = mix[i];
+             }
+             float mixRange = maxMix - minMix;
+             float reduceAmount = 0.0f;
+             if (mixRange > 1.0f) {
+                 float scale = 1.0f / mixRange;
+                 for (int i = 0; i<4; i++)
+                     mix[i] *= scale;
+                 minMix *= scale;
+                 reduceAmount = minMix;
+             } else {
+                 if (maxMix > 1.0f)
+                     reduceAmount = maxMix - 1.0f;
+                 else if (minMix < 0.0f)
+                     reduceAmount = minMix;
+             }
+             if (reduceAmount != 0.0f)
+                 for (int i=0; i<4; i++)
+                     mix[i] -= reduceAmount;
+         }
+#endif            
+        					
+
+
+					
+
 #if ( defined MIX_LOWER_THROTTLE || defined MIX_INCREASE_THROTTLE)
 
 //#define MIX_INCREASE_THROTTLE
@@ -609,35 +877,57 @@ if ( overthrottle > 0.1f) ledcommand = 1;
 #ifndef MIX_THROTTLE_INCREASE_MAX
 #define MIX_THROTTLE_INCREASE_MAX 0.2f
 #endif
+	if (in_air == 1){
+		float underthrottle = 0;
 
-float underthrottle = 0;
-
-for (int i = 0; i < 4; i++)
-    {
-        if (mix[i] < underthrottle)
-            underthrottle = mix[i];
-    }
+		for (int i = 0; i < 4; i++)
+			{
+					if (mix[i] < underthrottle)
+							underthrottle = mix[i];
+			}
 
 
-// limit to half throttle max reduction
-if ( underthrottle < -(float) MIX_THROTTLE_INCREASE_MAX)  underthrottle = -(float) MIX_THROTTLE_INCREASE_MAX;
+		// limit to half throttle max reduction
+		if ( underthrottle < -(float) MIX_THROTTLE_INCREASE_MAX)  underthrottle = -(float) MIX_THROTTLE_INCREASE_MAX;
 
-if ( underthrottle < 0.0f)
-    {
-        for ( int i = 0 ; i < 4 ; i++)
+		if ( underthrottle < 0.0f)
+			{
+					for ( int i = 0 ; i < 4 ; i++)
             mix[i] -= underthrottle;
-    }
-#ifdef MIX_THROTTLE_FLASHLED
-if ( underthrottle < -0.01f) ledcommand = 1;
-#endif
+			}
+		#ifdef MIX_THROTTLE_FLASHLED
+			if ( underthrottle < -0.01f) ledcommand = 1;
+		#endif
+	}
 }
 #endif
 
-            
-            
-            
-thrsum = 0;		
+ 
+#ifdef MOTOR_MIN_COMMAND2    // for testing purposes:  scaling style min motor command.  scales up all mix outputs so lowest motor is at min command only when one drops below min
+		#ifdef BRUSHLESS_TARGET
+		// do nothing - idle set by DSHOT
+		#else
+		float motor_min_value = (float) MOTOR_MIN_COMMAND2 * 0.01f;
+		float motor_min_adjust = 0;
+		for (int i = 0; i<4; i++) {                      
+			if ( mix[i] < 0 ) mix[i] = 0;								 		//Clip all mixer value to 0 before scaling
+			if (mix[i] < (motor_min_value))    			        //Determine maximum adjustment necessary
+					{
+					float motor_min_adjust_temp = motor_min_value - mix[i];
+					if (motor_min_adjust_temp > motor_min_adjust) motor_min_adjust = motor_min_adjust_temp;
+					}
+		}
+		for (int i = 0; i<4; i++) { 											// Scale up all 4 motors by an equal amount if any command has dropped below min
+		mix[i] += motor_min_adjust;
+		}
+		#endif
+#endif
 				
+ 
+            
+thrsum = 0;		//reset throttle sum for voltage monitoring logic in main loop
+
+//Begin for-loop to send motor commands
 		for ( int i = 0 ; i <= 3 ; i++)
 		{			
 		           
@@ -645,6 +935,8 @@ thrsum = 0;
 		mix[i] = clip_ff(mix[i], i);
 		#endif
 
+			
+//***********************Motor Test Logic
 		#if defined(MOTORS_TO_THROTTLE) || defined(MOTORS_TO_THROTTLE_MODE)
 		#if defined(MOTORS_TO_THROTTLE_MODE) && !defined(MOTORS_TO_THROTTLE)
 		if(aux[MOTORS_TO_THROTTLE_MODE])
@@ -665,15 +957,32 @@ thrsum = 0;
 		#warning "MOTORS TEST MODE"
 		#endif
 		#endif
+//***********************End Motor Test Logic
 
-		#ifdef MOTOR_MIN_ENABLE
-		if (mix[i] < (float) MOTOR_MIN_VALUE)
-		{
-			mix[i] = (float) MOTOR_MIN_VALUE;
-		}
+
+//***********************Min Motor Command Logic
+		#ifdef MOTOR_MIN_COMMAND3			// clipping style min motor command
+		#ifdef BRUSHLESS_TARGET
+		// do nothing - idle set by DSHOT
+		#else     //clipping style min motor command override
+		if (mix[i] < (float) MOTOR_MIN_COMMAND3 * 0.01f)  mix[i] = (float) MOTOR_MIN_COMMAND3 * 0.01f;
+		#endif
 		#endif
 		
-			
+		#ifdef MOTOR_MIN_COMMAND   // for testing purposes:  mapping style min motor command.  remaps entire range of motor commands from user set min value to 1
+		#ifdef BRUSHLESS_TARGET
+		// do nothing - idle set by DSHOT
+		#else
+			float motor_min_value = (float) MOTOR_MIN_COMMAND * 0.01f;
+			if ( mix[i] < 0 ) mix[i] = 0;											//Clip all mixer values into 0 to 1 range before remapping
+			if ( mix[i] > 1 ) mix[i] = 1;	
+			mix[i] = motor_min_value + mix[i] * (1.0f - motor_min_value);
+		#endif
+#endif  
+//***********************End Min Motor Command Logic
+
+
+//***********************Send Motor PWM Command Logic			
 		#ifndef NOMOTORS
 		#ifndef MOTORS_TO_THROTTLE
 		//normal mode
@@ -688,18 +997,20 @@ thrsum = 0;
 		#warning "NO MOTORS"
 		tempx[i] = motormap( mix[i] );
 		#endif
+//***********************End Motor PWM Command Logic
 		
+//***********************Clip mmixer outputs (if not already done) before applying calculating throttle sum
 		if ( mix[i] < 0 ) mix[i] = 0;
 		if ( mix[i] > 1 ) mix[i] = 1;
 		thrsum+= mix[i];
 		}	
-		thrsum = thrsum / 4;
-		
-	}// end motors on
-    
+// end of for-loop to send motor PWM commands
+		thrsum = thrsum / 4;		//calculate throttle sum for voltage monitoring logic in main loop		
+	}
+// end motors on
 	
 }
-
+// end of control function
 
 #ifndef MOTOR_FILTER2_ALPHA
 #define MOTOR_FILTER2_ALPHA 0.3
@@ -707,15 +1018,25 @@ thrsum = 0;
 
 
 float motor_filt[4];
+#if defined(MOTOR_FILTER2_ALPHA) && defined(SWITCHABLE_MOTOR_FILTER2_ALPHA) && defined(SWITCHABLE_FEATURE_1)
 
 float motorlpf( float in , int x)
 { 
-    
-    LPF( &motor_filt[x] , in , 1.0f - (float)MOTOR_FILTER2_ALPHA);
-    
-    return motor_filt[x];
+		extern int flash_feature_1;
+		if (flash_feature_1 == 0){
+    lpf(&motor_filt[x] , in , 1 - MOTOR_FILTER2_ALPHA);
+    }else{
+		lpf(&motor_filt[x] , in , 1 - SWITCHABLE_MOTOR_FILTER2_ALPHA);		
+		}
+    return motor_filt[x];	
 }
-
+#else
+float motorlpf( float in , int x)
+{ 
+	lpf(&motor_filt[x] , in , 1 - MOTOR_FILTER2_ALPHA);
+  return motor_filt[x];
+}
+#endif
 
 float hann_lastsample[4];
 float hann_lastsample2[4];
@@ -732,6 +1053,41 @@ float motorfilter( float motorin ,int number)
 }
 
 
+    //initial values for the kalman filter 
+    float x_est_last[4] ;
+    float P_last[4] ; 
+    //the noise in the system 
+    const float Q = 0.02;
+//the noise in the system ( variance -  squared )
+   
+    #ifdef MOTOR_KAL
+    const float R = Q/(float)MOTOR_KAL;
+    #else
+    float R = 0.1;
+    #endif
+
+float  motor_kalman( float in , int x)   
+{    
+
+
+    
+        //do a prediction 
+       float x_temp_est = x_est_last[x]; 
+       float P_temp = P_last[x] + Q; 
+
+       float K = P_temp * (1.0f/(P_temp + R));
+       float x_est = x_temp_est + K * (in - x_temp_est);  
+       float P = (1- K) * P_temp; 
+       
+        //update our last's 
+        P_last[x] = P; 
+        x_est_last[x] = x_est; 
+//
+
+return x_est;
+}	
+	
+	
 float clip_feedforward[4];
 // clip feedforward adds the amount of thrust exceeding 1.0 ( max) 
 // to the next iteration(s) of the loop
@@ -764,57 +1120,23 @@ float clip_ff(float motorin, int number)
 	return motorin;
 }
 
+#ifndef TORQUE_BOOST
+    #define TORQUE_BOOST   0.0
+#endif
 
+ float motord( float in , int x)
+ {
+   float factor = TORQUE_BOOST;
+   static float lastratexx[4][4];
+     
+        float out  =  ( + 0.125f *in + 0.250f * lastratexx[x][0]
+                    - 0.250f * lastratexx[x][2] - ( 0.125f) * lastratexx[x][3]) * factor; 						;
 
-    //initial values for the kalman filter 
-    float x_est_last[4]={0};
-    float P_last[4]={0}; 
-    const float Q = 0.02;
-    
-    #ifdef MOTOR_KAL_2ND
-    #undef MOTOR_KAL
-    const float R = Q/(float)MOTOR_KAL_2ND;
-    #endif
-    
-    #ifdef MOTOR_KAL
-    const float R = Q/(float)MOTOR_KAL;
-    #endif
-    
-    #if ( !defined MOTOR_KAL_2ND  && ! defined MOTOR_KAL )
-    float R = 0.1; 
-    #endif
+        lastratexx[x][3] = lastratexx[x][2];
+        lastratexx[x][2] = lastratexx[x][1];
+        lastratexx[x][1] = lastratexx[x][0];
+        lastratexx[x][0] = in;
+        
+    return in + out;
+ }
 
-float  motor_kalman( float in , int x)   
-{    
-    float P_temp = P_last[x] + Q; 
-    float K = P_temp/(P_temp + R);
-
-    x_est_last[x] = x_est_last[x] + K * (in - x_est_last[x]);  
-    P_last[x] = (1- K) * P_temp; 
-
-return x_est_last[x];
-}	
-
-
-float x_est_last2[4] ;
-
-float  motor_kalman_2nd( float in , int x)   
-{  
-    
-    float P_temp = P_last[x] + Q; 
-    float K = P_temp/(P_temp + R);
-    float oneminusK = 1.0f - K;   
-
-    x_est_last[x] = oneminusK * x_est_last[x] + K * (in );  
-
-    float ans = x_est_last2[x] = oneminusK * x_est_last2[x] + K * (x_est_last[x]); 
-
-
-    P_last[x] = oneminusK * P_temp; 
-
-return ans;
-}	
-	
-	
-	
-	

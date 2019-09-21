@@ -29,11 +29,8 @@ THE SOFTWARE.
 #include "xn297.h"
 #include "drv_time.h"
 #include <stdio.h>
-#include "config.h"
 #include "defines.h"
-
 #include "rx_bayang.h"
-
 #include "util.h"
 
 
@@ -192,24 +189,21 @@ extern float rx[4];
 extern char aux[AUXNUMBER];
 extern char lastaux[AUXNUMBER];
 extern char auxchange[AUXNUMBER];
+extern float aux_analog[AUXNUMBER];
+extern float lastaux_analog[AUXNUMBER];
+extern char aux_analogchange[AUXNUMBER];
 
 
 char lasttrim[4];
 char rfchannel[4];
-
+int rxaddress[5];
 int rxmode = 0;
 int rf_chan = 0;
+int rx_ready = 0;
+int bind_safety = 0;
 int rxdata[17 + 2* crc_en];
 
 
-uint8_t rxaddress[5];
-int telemetry_enabled = 0;
-int rx_bind_enable = 0;
-int rx_bind_load = 0;
-
-unsigned long autobindtime = 0;
-int autobind_inhibit = 0;
-int packet_period = PACKET_PERIOD;
 
 
 void rx_init()
@@ -254,25 +248,6 @@ void rx_init()
     xn_writereg(RF_CH, 0);      // bind on channel 0
     xn_command(FLUSH_RX);
     xn_writereg(0, XN_TO_RX);   // power up, crc disabled, rx mode
-
-
- 
-    if ( rx_bind_load )
-    {
-
-          // write new rx and tx address
-          nrf24_set_xn297_address( rxaddress );
-
-          xn_writereg(0x25, rfchannel[rf_chan]);    // Set channel frequency 
-          rxmode = RX_MODE_NORMAL;
-        
-          if ( telemetry_enabled ) packet_period = PACKET_PERIOD_TELEMETRY;
-    }
-    else
-    {
-        autobind_inhibit = 1;
-    }
-    
 
 }
 
@@ -431,6 +406,12 @@ float packettodata(int *data)
     return (((data[0] & 0x0003) * 256 + data[1]) - 512) * 0.001953125;
 }
 
+float bytetodata(int byte)
+{
+    //return (byte - 128) * 0.0078125; // -1 to 1
+    return byte * 0.00390625; // 0 to 1
+}
+
 
 static int decodepacket(void)
 {
@@ -478,34 +459,52 @@ static int decodepacket(void)
                       
                 aux[CH_FLIP] = (rxdata[2] & 0x08) ? 1 : 0;
 
+#ifdef USE_ANALOG_AUX
+                aux[CH_EXPERT] = (rxdata[1] > 0x7F) ? 1 : 0;
+#else
                 aux[CH_EXPERT] = (rxdata[1] == 0xfa) ? 1 : 0;
+#endif
 
                 aux[CH_HEADFREE] = (rxdata[2] & 0x02) ? 1 : 0;
 
                 aux[CH_RTH] = (rxdata[2] & 0x01) ? 1 : 0;   // rth channel
 
+#ifdef USE_ANALOG_AUX
+                // Assign all analog versions of channels based on boolean channel data
+                for (int i = 0; i < AUXNUMBER - 2; i++)
+                {
+                  if (i == CH_ANA_AUX1)
+                    aux_analog[CH_ANA_AUX1] = bytetodata(rxdata[1]);
+                  else if (i == CH_ANA_AUX2)
+                    aux_analog[CH_ANA_AUX2] = bytetodata(rxdata[13]);
+                  else
+                    aux_analog[i] = aux[i] ? 1.0 : 0.0;
+                  aux_analogchange[i] = 0;
+                  if (lastaux_analog[i] != aux_analog[i])
+                    aux_analogchange[i] = 1;
+                  lastaux_analog[i] = aux_analog[i];
+                }
+#endif
 
 
-                if ( aux[LEVELMODE] )
-                {
-                // level mode expo
-                if ( EXPO_XY > 0.01)
-                {
-                    rx[0] = rcexpo(rx[0], EXPO_XY);
-                    rx[1] = rcexpo(rx[1], EXPO_XY);
-                }
-                if ( EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], EXPO_YAW);
-                }
-                else
-                {
-                // acro mode expo
-                if ( ACRO_EXPO_XY > 0.01 )
-                {
-                    rx[0] = rcexpo(rx[0], ACRO_EXPO_XY);
-                    rx[1] = rcexpo(rx[1], ACRO_EXPO_XY);
-                }
-                if ( ACRO_EXPO_YAW > 0.01 )rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
-                }
+							if (aux[LEVELMODE]){
+								if (aux[RACEMODE] && !aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else if (aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else{
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ANGLE_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ANGLE_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);}
+							}else{
+								if ( ACRO_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+								if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+								if ( ACRO_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
+							}
 
 
 
@@ -544,7 +543,8 @@ int failsafe = 0;
 unsigned int skipchannel = 0;
 int lastrxchan;
 int timingfail = 0;
-
+int telemetry_enabled = 0;
+int packet_period = PACKET_PERIOD;
 
 uint8_t rxaddr[5];
 int packets = 0;
@@ -562,9 +562,15 @@ void checkrx(void)
                 if ( nrf24_read_xn297_payload(rxdata, 15 + 2* crc_en) )  ;
                 else return;
 
+#ifdef USE_ANALOG_AUX
+                if (rxdata[0] == 0xa2 || rxdata[0] == 0xa1)
+                {  // bind packet
+                        if (rxdata[0] == 0xa1)
+#else
                 if (rxdata[0] == 0xa4 || rxdata[0] == 0xa3)
-                  {   // bind packet
-                      if (rxdata[0] == 0xa3)
+                {  // bind packet
+                        if (rxdata[0] == 0xa3)
+#endif
                         {
                             telemetry_enabled = 1;
                             packet_period = PACKET_PERIOD_TELEMETRY;
@@ -576,17 +582,16 @@ void checkrx(void)
                       rfchannel[3] = rxdata[9];
                         
                        
-
-           
+                      
                       for ( int i = 0 ; i < 5; i++)
                       {
-                        rxaddress[i] = rxaddr[i] = rxdata[i+1];
+                        rxaddr[i] = rxdata[i+1];
                       }
                       // write new rx and tx address
                       nrf24_set_xn297_address( rxaddr );
                       
-                      
                       xn_writereg(0x25, rfchannel[rf_chan]);    // Set channel frequency 
+                      
                       rxmode = RX_MODE_NORMAL;
 
                   }
@@ -636,7 +641,10 @@ void checkrx(void)
                   }
 
             } // end normal rx mode
-
+				bind_safety++;
+				if (bind_safety > 9){								//requires 10 good frames to come in before rx_ready safety can be toggled to 1
+				rx_ready = 1;											// because aux channels initialize low and clear the binding while armed flag before aux updates high
+				bind_safety = 10;}	
       } // end packet received
 
 // finish sending if already started
@@ -685,27 +693,13 @@ void checkrx(void)
           rx[2] = 0;
           rx[3] = 0;
       }
-      
-    if ( !failsafe) autobind_inhibit = 1;
-      else if ( !autobind_inhibit && time - autobindtime > 15000000 )
-    {
-        autobind_inhibit = 1;
-        rxmode = RX_MODE_BIND;
-        static uint8_t rxaddr[5] = { 0 , 0 , 0 , 0 , 0  };
-        nrf24_set_xn297_address( rxaddr );
-        
-        xn_writereg(RF_CH, 0);      // bind on channel 0
-    }
- 
-        
-      
+
     if (gettime() - secondtimer > 1000000)
       {
           packetpersecond = packetrx;
           packetrx = 0;
           secondtimer = gettime();
       }
-
 
 
 }

@@ -2,12 +2,13 @@
 #include "sixaxis.h"
 #include "drv_time.h"
 #include "defines.h"
-#include "config.h"
 #include "pid.h"
+
 
 extern int ledcommand;
 extern int ledblink;
 extern int onground;
+extern int analog_aux_pids_adjusted;
 extern char aux[AUXNUMBER];
 
 int pid_gestures_used = 0;
@@ -20,11 +21,16 @@ void gestures( void)
 		if (command!=GESTURE_NONE)
         {
             if (command == GESTURE_DDD)
-		    {
+		    { 
 			                  
+            #ifdef ANALOG_AUX_PIDS
+                //skip accel calibration if pid gestures used or analog aux pids adjustments made
+                if ( !pid_gestures_used && !analog_aux_pids_adjusted )
+            #else
                 //skip accel calibration if pid gestures used
                 if ( !pid_gestures_used )
-                {
+            #endif
+                { 
                     gyro_cal();	// for flashing lights
                     acc_cal();                   
                 }
@@ -32,6 +38,9 @@ void gestures( void)
                 {
                     ledcommand = 1;
                     pid_gestures_used = 0;
+            #ifdef ANALOG_AUX_PIDS
+                    analog_aux_pids_adjusted = 0;
+            #endif
                 }
                 #ifdef FLASH_SAVE2
                 extern float accelcal[3];
@@ -39,31 +48,69 @@ void gestures( void)
                 #endif
                 
                 #ifdef FLASH_SAVE1
-			    extern void flash_save( void);
+								extern void flash_save( void);
                 extern void flash_load( void);
-                flash_save( );
+								flash_save( );
                 flash_load( );
                 // reset flash numbers
                 extern int number_of_increments[3][3];
                 for( int i = 0 ; i < 3 ; i++)
                     for( int j = 0 ; j < 3 ; j++)
-                        number_of_increments[i][j] = 0;  
+                        number_of_increments[i][j] = 0;
                 
-                #endif
+                #ifdef USE_ANALOG_AUX
+                // reset analog aux pids array
+                pid_init();
+                #endif // USE_ANALOG_AUX
+
+                #endif // FLASH_SAVE1
 			    // reset loop time 
 			    extern unsigned long lastlooptime;
 			    lastlooptime = gettime();
-		    }		
+						
+		    }	
+	
+            if (command == GESTURE_DUD)
+              {                  
+								 #ifdef SWITCHABLE_FEATURE_3
+                 extern int flash_feature_3;
+                 flash_feature_3=!flash_feature_3;
+                 ledblink = 2 - flash_feature_3;
+                 pid_gestures_used = 1;								 
+								 #endif
+              }    
+				
             if (command == GESTURE_UUU)
               {
-                 #if (defined RX_BAYANG_PROTOCOL_TELEMETRY || defined RX_NRF24_BAYANG_TELEMETRY )                 
+                 #if defined (RX_DSMX_2048) || defined (RX_DSM2_1024) || defined (RX_BAYANG_PROTOCOL_TELEMETRY_AUTOBIND)                  
                  extern int rx_bind_enable;
                  rx_bind_enable=!rx_bind_enable;
                  ledblink = 2 - rx_bind_enable;
                  pid_gestures_used = 1;  
                  #endif
+								
+							}    
+			
+            if (command == GESTURE_RRR)
+              {								
+								 #ifdef SWITCHABLE_FEATURE_1
+                 extern int flash_feature_1;
+                 flash_feature_1=!flash_feature_1;
+                 ledblink = 2 - flash_feature_1;
+                 pid_gestures_used = 1;								 
+								 #endif
               }
-              
+ 				
+            if (command == GESTURE_LLL)
+              {
+                 #ifdef SWITCHABLE_FEATURE_2     
+                 extern int flash_feature_2;
+                 flash_feature_2=!flash_feature_2;
+                 ledblink = 2 - flash_feature_2;
+                 pid_gestures_used = 1;								 
+								 #endif
+              }
+	             
             if (command == GESTURE_RRD)
               {
                   aux[CH_AUX1] = 1;

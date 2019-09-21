@@ -1,7 +1,7 @@
 //
 #include "project.h"
 #include "drv_time.h"
-#include "config.h"
+#include "defines.h"
 
 void failloop( int val);
 
@@ -33,15 +33,16 @@ static __INLINE uint32_t SysTick_Config2(uint32_t ticks)
 
 void time_init()
 {
-    if (SysTick_Config2( SYS_CLOCK_FREQ_HZ /8 ))
+
+	  if (SysTick_Config2( SYS_CLOCK_FREQ_HZ /8 ))
     {// not able to set divider
-        failloop(5);
+			  failloop(5);
+        while (1);
     }
 }
 
-// return time in uS from start ( micros())
 // called at least once per 16ms or time will overflow
-unsigned long gettime(void)
+unsigned long time_update(void)
 {
 	unsigned long maxticks = SysTick->LOAD;	
 	unsigned long ticks = SysTick->VAL;	
@@ -78,6 +79,11 @@ unsigned long gettime(void)
 }
 
 
+// return time in uS from start ( micros())
+unsigned long gettime()
+{
+	return time_update();
+}
 #ifdef ENABLE_OVERCLOCK
 // delay in uS
 void delay(uint32_t data)

@@ -1,7 +1,7 @@
 
 #include "project.h"
 #include "drv_pwm.h"
-#include "config.h"
+#include "defines.h"
 #include "drv_time.h"
 
 #ifdef USE_ESC_DRIVER
@@ -23,9 +23,9 @@
 // enable preload
 #define ENABLE_PRELOAD 
 
-#define ENABLE_ONESHOT
+//#define ENABLE_ONESHOT
 
-//#define ENABLE_ONESHOT42
+#define ENABLE_ONESHOT42
 
 // signal repetition frequency (hertz) min 185 max 500
 #define ESC_FREQ_PPM 500

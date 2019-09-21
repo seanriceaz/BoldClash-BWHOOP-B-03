@@ -28,14 +28,13 @@ THE SOFTWARE.
 
 
 #include "project.h"
-
+#include "defines.h"
 #include "led.h"
 #include "util.h"
 #include "sixaxis.h"
 #include "drv_adc.h"
 #include "drv_time.h"
 #include "drv_softi2c.h"
-#include "config.h"
 #include "drv_pwm.h"
 #include "drv_adc.h"
 #include "drv_gpio.h"
@@ -44,7 +43,6 @@ THE SOFTWARE.
 #include "drv_spi.h"
 #include "control.h"
 #include "pid.h"
-#include "defines.h"
 #include "drv_i2c.h"
 #include "drv_softi2c.h"
 #include "drv_serial.h"
@@ -60,12 +58,13 @@ THE SOFTWARE.
 #ifdef USE_SERIAL_4WAY_BLHELI_INTERFACE
 #include "drv_softserial.h"
 #include "serial_4way.h"
-#endif
-
-
-#if defined (__GNUC__)&& !( defined (SOFT_LPF_NONE) || defined (SOFT_LPF_1ST_HZ) || defined (SOFT_LPF_2ST_HZ) )
+#endif									   
+						   
+						   
+#if defined (__GNUC__)&& !( defined (SOFT_LPF_NONE) || defined (GYRO_FILTER_PASS1) || defined (GYRO_FILTER_PASS2) )
 #warning the soft lpf may not work correctly with gcc due to longer loop time
 #endif
+
 
 
 #ifdef DEBUG
@@ -109,6 +108,11 @@ char aux[AUXNUMBER] = { 0 ,0 ,0 , 0 , 0 , 0};
 char lastaux[AUXNUMBER];
 // if an aux channel has just changed
 char auxchange[AUXNUMBER];
+// analog version of each aux channel
+float aux_analog[AUXNUMBER];
+float lastaux_analog[AUXNUMBER];
+// if an analog aux channel has just changed
+char aux_analogchange[AUXNUMBER];
 
 // bind / normal rx mode
 extern int rxmode;
@@ -120,6 +124,12 @@ int in_air;
 int armed_state;
 int arming_release;
 int binding_while_armed = 1;
+float lipo_cell_count = 1;
+
+//Experimental Flash Memory Feature
+int flash_feature_1 = 0;
+int flash_feature_2 = 0;
+int flash_feature_3 = 0;
 
 // for led flash on gestures
 int ledcommand = 0;
@@ -127,12 +137,11 @@ int ledblink = 0;
 unsigned long ledcommandtime = 0;
 
 void failloop( int val);
-
-int random_seed = 0;
 #ifdef USE_SERIAL_4WAY_BLHELI_INTERFACE
 volatile int switch_to_4way = 0;
 static void setup_4way_external_interrupt(void);
-#endif
+#endif									   
+int random_seed = 0;
 
 int main(void)
 {
@@ -145,11 +154,17 @@ clk_init();
 #endif
 	
   gpio_init();	
-	
+  ledon(255);									//Turn on LED during boot so that if a delay is used as part of using programming pins for other functions, the FC does not appear inactive while programming times out
 	spi_init();
 	
   time_init();
 
+
+#if defined(RX_DSMX_2048) || defined(RX_DSM2_1024)    
+		rx_spektrum_bind(); 
+#endif
+	
+	
 	delay(100000);
 		
 	i2c_init();	
@@ -183,37 +198,57 @@ aux[CH_AUX1] = 1;
 #endif
     
     
-#ifdef FLASH_SAVE1
+ #ifdef FLASH_SAVE1
 // read pid identifier for values in file pid.c
     flash_hard_coded_pid_identifier();
 
 // load flash saved variables
     flash_load( );
 #endif
-    
+
+
+#ifdef USE_ANALOG_AUX
+  // saves initial pid values - after flash loading
+  pid_init();
+#endif
+
+
 	rx_init();
 
 	
 int count = 0;
 	
-while ( count < 64 )
+while ( count < 5000 )
 {
-	vbattfilt += adc_read(0);
-	delay(1000);
+	float bootadc = adc_read(0)*vreffilt;
+	lpf ( &vreffilt , adc_read(1)  , 0.9968f);
+	lpf ( &vbattfilt , bootadc , 0.9968f);
 	count++;
 }
+
+#ifndef LIPO_CELL_COUNT
+for ( int i = 6 ; i > 0 ; i--)
+{
+		float cells = i;
+		if (vbattfilt/cells > 3.7f)
+		{	
+			lipo_cell_count = cells;
+			break;
+		}
+}
+#else
+		lipo_cell_count = (float)LIPO_CELL_COUNT;
+#endif
+	
 #ifdef RX_BAYANG_BLE_APP
    // for randomising MAC adddress of ble app - this will make the int = raw float value        
     random_seed =  *(int *)&vbattfilt ; 
     random_seed = random_seed&0xff;
 #endif
- vbattfilt = vbattfilt/64;	
-// startvref = startvref/64;
-
 	
 #ifdef STOP_LOWBATTERY
 // infinite loop
-if ( vbattfilt < (float) 3.3f) failloop(2);
+if ( vbattfilt/lipo_cell_count < 3.3f) failloop(2);
 #endif
 
 
@@ -237,7 +272,7 @@ extern float accelcal[3];
  accelcal[0] = flash2_readdata( OB->DATA0 ) - 127;
  accelcal[1] = flash2_readdata( OB->DATA1 ) - 127;
 #endif
-
+				   
 
 extern int liberror;
 if ( liberror ) 
@@ -258,11 +293,10 @@ if ( liberror )
 
 #ifdef USE_SERIAL_4WAY_BLHELI_INTERFACE
 	setup_4way_external_interrupt();
-#endif
-
+#endif  
 
 	while(1)
-	{
+	{ 
 		// gettime() needs to be called at least once per second 
 		unsigned long time = gettime(); 
 		looptime = ((uint32_t)( time - lastlooptime));
@@ -276,7 +310,7 @@ if ( liberror )
 	
 		#ifdef DEBUG				
 		debug.totaltime += looptime;
-		LPF( &debug.timefilt , looptime, 0.998 );
+		lpf ( &debug.timefilt , looptime, 0.998 );
 		#endif
 		lastlooptime = time;
 		
@@ -289,20 +323,20 @@ if ( liberror )
         // read gyro and accelerometer data	
 		sixaxis_read();
 		
-		
         // all flight calculations and motors
 		control();
 
-        // attitude calculations for level mode
+        // attitude calculations for level mode 		
  		extern void imu_calc(void);		
-		imu_calc();       
+		imu_calc(); 
+       
       
 // battery low logic
 
         // read acd and scale based on processor voltage
 		float battadc = adc_read(0)*vreffilt; 
         // read and filter internal reference
-        LPF( &vreffilt , adc_read(1)  , 0.9968f);	
+        lpf ( &vreffilt , adc_read(1)  , 0.9968f);	
   
 		
 
@@ -312,13 +346,13 @@ if ( liberror )
 	
 		// filter motorpwm so it has the same delay as the filtered voltage
 		// ( or they can use a single filter)		
-		LPF( &thrfilt , thrsum , 0.9968f);	// 0.5 sec at 1.6ms loop time	
+		lpf ( &thrfilt , thrsum , 0.9968f);	// 0.5 sec at 1.6ms loop time	
 
-        static float vbattfilt_corr = 4.2;
+        float vbattfilt_corr = 4.2f * lipo_cell_count;
         // li-ion battery model compensation time decay ( 18 seconds )
-        LPF( &vbattfilt_corr , vbattfilt , FILTERCALC( 1000 , 18000e3) );
+        lpf ( &vbattfilt_corr , vbattfilt , FILTERCALC( 1000 , 18000e3) );
 	
-        LPF( &vbattfilt , battadc , 0.9968f);
+        lpf ( &vbattfilt , battadc , 0.9968f);
 
 
 // compensation factor for li-ion internal model
@@ -354,7 +388,7 @@ if( thrfilt > 0.1f )
 	ans = vcomp[z] - lastin[z] + FILTERCALC( 1000*12 , 6000e3) *lastout[z];
 	lastin[z] = vcomp[z];
 	lastout[z] = ans;
-	LPF( &score[z] , ans*ans , FILTERCALC( 1000*12 , 60e6 ) );	
+	lpf ( &score[z] , ans*ans , FILTERCALC( 1000*12 , 60e6 ) );	
 	z++;
        
     if ( z >= 12 )
@@ -400,7 +434,7 @@ if( thrfilt > 0.1f )
 	 gestures( );
 	}
 
-        
+   
 
 
 if ( LED_NUMBER > 0)
@@ -420,8 +454,8 @@ if ( LED_NUMBER > 0)
                     ledflash ( 500000, 15);			
                 }
             else 
-            {
-                int leds_on = aux[LEDS_ON];
+            {  
+                int leds_on = !aux[LEDS_ON];
                 if (ledcommand)
                 {
                     if (!ledcommandtime)
@@ -497,7 +531,6 @@ rgb_dma_start();
         }
     }
 #endif
-
 #ifdef USE_SERIAL_4WAY_BLHELI_INTERFACE
 		extern int onground;
 		if (onground)
@@ -528,6 +561,10 @@ rgb_dma_start();
 checkrx();
 
 
+#ifdef DEBUG
+	debug.cpu_load = (gettime() - lastlooptime )*1e-3f;
+#endif
+
 while ( (gettime() - time) < LOOPTIME );	
 
 		
@@ -539,7 +576,7 @@ while ( (gettime() - time) < LOOPTIME );
 // 2 - low battery at powerup - if enabled by config
 // 3 - radio chip not detected
 // 4 - Gyro not found
-// 5 - clock , interrupts , systick, bad code
+// 5 - clock , intterrupts , systick
 // 6 - loop time issue
 // 7 - i2c error 
 // 8 - i2c error main loop
@@ -641,5 +678,6 @@ void EXTI4_15_IRQHandler(void)
 	}
 }
 #endif
+
 
 

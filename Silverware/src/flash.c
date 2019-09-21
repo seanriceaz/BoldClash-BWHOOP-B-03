@@ -1,7 +1,7 @@
 
 #include "project.h"
 #include "drv_fmc.h"
-#include "config.h"
+#include "defines.h"
 
 extern int fmc_erase( void );
 extern void fmc_unlock(void);
@@ -62,7 +62,7 @@ void flash_save( void) {
     fmc_write_float(addresscount++, accelcal[2]);
 
    
-#if (defined RX_BAYANG_PROTOCOL_TELEMETRY || defined RX_NRF24_BAYANG_TELEMETRY )
+#ifdef RX_BAYANG_PROTOCOL_TELEMETRY_AUTOBIND
 // autobind info     
 extern char rfchannel[4];
 extern char rxaddress[5];
@@ -80,7 +80,56 @@ extern int rx_bind_enable;
     {
       // this will leave 255's so it will be picked up as disabled  
     }
-#endif    
+#endif  
+
+
+#ifdef SWITCHABLE_FEATURE_1
+extern int flash_feature_1;
+
+//save filter cut info
+
+if (flash_feature_1)
+{
+	fmc_write_float (53,1);	
+}else{
+	fmc_write_float (53,0);	
+}
+#endif
+
+#ifdef SWITCHABLE_FEATURE_2
+extern int flash_feature_2;
+
+//save LVC info
+
+if (flash_feature_2)
+{
+	fmc_write_float (54,1);	
+}else{
+	fmc_write_float (54,0);	
+}
+#endif
+
+#ifdef SWITCHABLE_FEATURE_3
+extern int flash_feature_3;
+
+//save LVC info
+
+if (flash_feature_3)
+{
+	fmc_write_float (55,1);	
+}else{
+	fmc_write_float (55,0);	
+}
+#endif
+
+#if defined(RX_DSMX_2048) || defined(RX_DSM2_1024)
+extern int rx_bind_enable;
+if ( rx_bind_enable ){
+		fmc_write_float (56,1);
+	}else{
+		fmc_write_float (56,0);	
+	}
+#endif
 
     writeword(255, FMC_HEADER);
     
@@ -115,8 +164,7 @@ void flash_load( void) {
     accelcal[2] = fmc_read_float(addresscount++ );  
 
        
-#if (defined RX_BAYANG_PROTOCOL_TELEMETRY || defined RX_NRF24_BAYANG_TELEMETRY )
-     
+ #ifdef RX_BAYANG_PROTOCOL_TELEMETRY_AUTOBIND  
 extern char rfchannel[4];
 extern char rxaddress[5];
 extern int telemetry_enabled;
@@ -155,7 +203,27 @@ extern int rx_bind_enable;
         }
     }
 #endif
-    
+
+#ifdef SWITCHABLE_FEATURE_1
+	extern int flash_feature_1;
+	flash_feature_1 = fmc_read_float(53);
+#endif
+
+#ifdef SWITCHABLE_FEATURE_2
+	extern int flash_feature_2;
+	flash_feature_2 = fmc_read_float(54);
+#endif
+
+#ifdef SWITCHABLE_FEATURE_3
+	extern int flash_feature_3;
+	flash_feature_3 = fmc_read_float(55);
+#endif
+
+#if defined(RX_DSMX_2048) || defined(RX_DSM2_1024)
+	extern int rx_bind_enable;
+	rx_bind_enable = fmc_read_float(56);
+#endif
+
     }
     else
     {

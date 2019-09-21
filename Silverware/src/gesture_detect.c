@@ -2,7 +2,7 @@
 #include <math.h>
 #include "drv_time.h"
 #include "gestures.h"
-#include "config.h"
+#include "defines.h"
 
 #define STICKMAX 0.7f
 #define STICKCENTER 0.2f
@@ -34,6 +34,25 @@
 
 
 #define GSIZE 7
+
+// L L L
+const uint8_t command11[GSIZE] = {
+//	GESTURE_CENTER_IDLE, GESTURE_DOWN, GESTURE_CENTER, GESTURE_UP, GESTURE_CENTER, GESTURE_DOWN, GESTURE_CENTER
+	GESTURE_CENTER_IDLE, GESTURE_DOWN, GESTURE_CENTER, GESTURE_UP, GESTURE_CENTER, GESTURE_DOWN, GESTURE_CENTER
+};
+
+// L L L
+const uint8_t command10[GSIZE] = {
+//	GESTURE_CENTER_IDLE, GESTURE_DOWN, GESTURE_CENTER, GESTURE_UP, GESTURE_CENTER, GESTURE_DOWN, GESTURE_CENTER
+	GESTURE_CENTER_IDLE, GESTURE_LEFT, GESTURE_CENTER, GESTURE_LEFT, GESTURE_CENTER, GESTURE_LEFT, GESTURE_CENTER
+};
+
+// R R R
+const uint8_t command9[GSIZE] = {
+//	GESTURE_CENTER_IDLE, GESTURE_DOWN, GESTURE_CENTER, GESTURE_UP, GESTURE_CENTER, GESTURE_DOWN, GESTURE_CENTER
+	GESTURE_CENTER_IDLE, GESTURE_RIGHT, GESTURE_CENTER, GESTURE_RIGHT, GESTURE_CENTER, GESTURE_RIGHT, GESTURE_CENTER
+};
+
 
 // L L D
 const uint8_t command1[GSIZE] = {
@@ -227,7 +246,37 @@ int gesture_sequence(int currentgesture)
 			    gbuffer[1] = GESTURE_OTHER;
 			    return GESTURE_UUU;
 		    }
-            
+
+            if (check_command ( &gbuffer[0] , &command9[0] ))
+		    {
+			    // command 9
+
+			    //change buffer so it does not trigger again
+			    gbuffer[1] = GESTURE_OTHER;
+			    return GESTURE_RRR;
+		    }				
+				
+				    if (check_command ( &gbuffer[0] , &command10[0] ))
+		    {
+			    // command 10
+
+			    //change buffer so it does not trigger again
+			    gbuffer[1] = GESTURE_OTHER;
+			    return GESTURE_LLL;
+		    }	
+				
+				    if (check_command ( &gbuffer[0] , &command11[0] ))
+		    {
+			    // command 11
+
+			    //change buffer so it does not trigger again
+			    gbuffer[1] = GESTURE_OTHER;
+			    return GESTURE_DUD;
+		    }					
+				
+				
+				
+				
 			#ifdef PID_GESTURE_TUNING
 			if (check_command ( &gbuffer[0] , &command4[0] ))
 		    {

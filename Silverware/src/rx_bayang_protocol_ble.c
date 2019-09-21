@@ -24,16 +24,12 @@ THE SOFTWARE.
 
 #include "binary.h"
 #include "drv_spi.h"
-
 #include "project.h"
 #include "xn297.h"
 #include "drv_time.h"
 #include <stdio.h>
-#include "config.h"
 #include "defines.h"
-
 #include "rx_bayang.h"
-
 #include "util.h"
 
 #ifdef RX_BAYANG_PROTOCOL_BLE_BEACON
@@ -51,13 +47,17 @@ extern float rx[4];
 extern char aux[AUXNUMBER];
 extern char lastaux[AUXNUMBER];
 extern char auxchange[AUXNUMBER];
+extern float aux_analog[AUXNUMBER];
+extern float lastaux_analog[AUXNUMBER];
+extern char aux_analogchange[AUXNUMBER];
 
 
   char rfchannel[4];
 	int rxaddress[5];
 	int rxmode = 0;
 	int rf_chan = 0;
-
+  int rx_ready = 0;
+	int bind_safety = 0;
 	
 void bleinit( void);
 
@@ -87,7 +87,7 @@ void rx_init()
 #ifndef TX_POWER
 #define TX_POWER 7
 #endif
-	
+ 	
 // Gauss filter amplitude - lowest
 static uint8_t demodcal[2] = { 0x39 , B00000001 };
 writeregs( demodcal , sizeof(demodcal) );
@@ -109,6 +109,7 @@ writeregs( regs_1e , sizeof(regs_1e) );
 //#define XN_TO_RX B10001111
 //#define XN_TO_TX B10000010
 //#define XN_POWER B00000001|((TX_POWER&7)<<3)
+
 
 #define XN_TO_RX B10001111
 #define XN_TO_TX B10000010
@@ -595,6 +596,12 @@ float packettodata( int *  data)
 	return ( ( ( data[0]&0x0003) * 256 + data[1] ) - 512 ) * 0.001953125 ;	
 }
 
+float bytetodata(int byte)
+{
+    //return (byte - 128) * 0.0078125; // -1 to 1
+    return byte * 0.00390625; // 0 to 1
+}
+
 
 static int decodepacket( void)
 {
@@ -613,11 +620,7 @@ static int decodepacket( void)
 		// throttle		
 			rx[3] = ( (rxdata[8]&0x0003) * 256 + rxdata[9] ) * 0.000976562;
 		
-#ifndef DISABLE_EXPO
-	rx[0] = rcexpo ( rx[0] , EXPO_XY );
-	rx[1] = rcexpo ( rx[1] , EXPO_XY ); 
-	rx[2] = rcexpo ( rx[2] , EXPO_YAW ); 	
-#endif
+
 		if  (rxdata[1] != 0xfa) 
 		{// low rates
 			for ( int i = 0 ; i <3; i++)
@@ -635,11 +638,51 @@ static int decodepacket( void)
 							
 			    aux[CH_FLIP] = (rxdata[2] & 0x08) ? 1 : 0;
 
+#ifdef USE_ANALOG_AUX
+			    aux[CH_EXPERT] = (rxdata[1] > 0x7F) ? 1 : 0;
+#else
 			    aux[CH_EXPERT] = (rxdata[1] == 0xfa) ? 1 : 0;
+#endif
 
 			    aux[CH_HEADFREE] = (rxdata[2] & 0x02) ? 1 : 0;
 
 			    aux[CH_RTH] = (rxdata[2] & 0x01) ? 1 : 0;	// rth channel
+					
+#ifdef USE_ANALOG_AUX
+                // Assign all analog versions of channels based on boolean channel data
+                for (int i = 0; i < AUXNUMBER - 2; i++)
+                {
+                  if (i == CH_ANA_AUX1)
+                    aux_analog[CH_ANA_AUX1] = bytetodata(rxdata[1]);
+                  else if (i == CH_ANA_AUX2)
+                    aux_analog[CH_ANA_AUX2] = bytetodata(rxdata[13]);
+                  else
+                    aux_analog[i] = aux[i] ? 1.0 : 0.0;
+                  aux_analogchange[i] = 0;
+                  if (lastaux_analog[i] != aux_analog[i])
+                    aux_analogchange[i] = 1;
+                  lastaux_analog[i] = aux_analog[i];
+                }
+#endif
+
+							if (aux[LEVELMODE]){
+								if (aux[RACEMODE] && !aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else if (aux[HORIZON]){
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+									if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);
+								}else{
+									if ( ANGLE_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ANGLE_EXPO_ROLL);
+									if ( ANGLE_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ANGLE_EXPO_PITCH);
+									if ( ANGLE_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ANGLE_EXPO_YAW);}
+							}else{
+								if ( ACRO_EXPO_ROLL > 0.01) rx[0] = rcexpo(rx[0], ACRO_EXPO_ROLL);
+								if ( ACRO_EXPO_PITCH > 0.01) rx[1] = rcexpo(rx[1], ACRO_EXPO_PITCH);
+								if ( ACRO_EXPO_YAW > 0.01) rx[2] = rcexpo(rx[2], ACRO_EXPO_YAW);
+							}		
 
 			for ( int i = 0 ; i < AUXNUMBER - 2 ; i++)
 			{
@@ -701,7 +744,11 @@ void checkrx(void)
 		    {		// rx startup , bind mode
 			    xn_readpayload(rxdata, 15);
 
+#ifdef USE_ANALOG_AUX
+			    if (rxdata[0] == 162)
+#else
 			    if (rxdata[0] == 164)
+#endif
 			      {	// bind packet
 				      rfchannel[0] = rxdata[6];
 				      rfchannel[1] = rxdata[7];
@@ -762,7 +809,10 @@ unsigned long temptime = gettime();
 			      }
 
 		    }		// end normal rx mode
-
+				bind_safety++;
+				if (bind_safety > 9){								//requires 10 good frames to come in before rx_ready safety can be toggled to 1
+				rx_ready = 1;											// because aux channels initialize low and clear the binding while armed flag before aux updates high
+				bind_safety = 10;	}
 	  }			// end packet received
 
 	beacon_sequence();

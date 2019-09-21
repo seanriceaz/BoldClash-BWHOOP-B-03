@@ -64,12 +64,6 @@ void lpf( float *out, float in , float coeff)
 }
 
 
-void lpfx( float *out, float in , float coeff , float coeff2)
-{
-	*out = ( *out )* coeff + in * coeff2; 
-}
-
-
 void limitf ( float *input , const float limit)
 {
 	if (*input > limit) *input = limit;
@@ -153,6 +147,7 @@ extern void buffer_add(int val );
 // print a 32bit signed int
 void print_int( int val )
 {
+
 #define SP_INT_BUFFERSIZE 12	
 char buffer2[SP_INT_BUFFERSIZE];
  

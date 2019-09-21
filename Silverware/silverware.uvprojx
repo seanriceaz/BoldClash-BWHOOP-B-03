@@ -7,15 +7,16 @@
 
   <Targets>
     <Target>
-      <TargetName>BWhoop</TargetName>
+      <TargetName>NFE_Silverware</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
-      <pCCUsed>5060422::V5.06 update 4 (build 422)::ARMCC</pCCUsed>
+      <pCCUsed>5060750::V5.06 update 6 (build 750)::ARMCC</pCCUsed>
+      <uAC6>0</uAC6>
       <TargetOption>
         <TargetCommonOption>
           <Device>STM32F030F4</Device>
           <Vendor>STMicroelectronics</Vendor>
-          <PackID>Keil.STM32F0xx_DFP.1.5.0</PackID>
+          <PackID>Keil.STM32F0xx_DFP.2.0.0</PackID>
           <PackURL>http://www.keil.com/pack/</PackURL>
           <Cpu>IRAM(0x20000000,0x1000) IROM(0x08000000,0x4000) CPUTYPE("Cortex-M0") CLOCK(12000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
@@ -48,7 +49,7 @@
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
           <OutputDirectory>.\Objects\</OutputDirectory>
-          <OutputName>bwhoop</OutputName>
+          <OutputName>nfe_silverware</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
           <CreateHexFile>1</CreateHexFile>
@@ -183,6 +184,7 @@
             <hadXRAM>0</hadXRAM>
             <uocXRam>0</uocXRam>
             <RvdsVP>0</RvdsVP>
+            <RvdsMve>0</RvdsMve>
             <hadIRAM2>0</hadIRAM2>
             <hadIROM2>0</hadIROM2>
             <StupSel>8</StupSel>
@@ -323,6 +325,7 @@
             <uThumb>0</uThumb>
             <uSurpInc>0</uSurpInc>
             <uC99>1</uC99>
+            <uGnu>0</uGnu>
             <useXO>0</useXO>
             <v6Lang>1</v6Lang>
             <v6LangP>1</v6LangP>
@@ -411,6 +414,7 @@
                 <uThumb>2</uThumb>
                 <uSurpInc>2</uSurpInc>
                 <uC99>2</uC99>
+                <uGnu>2</uGnu>
                 <useXO>2</useXO>
                 <v6Lang>0</v6Lang>
                 <v6LangP>0</v6LangP>
@@ -483,6 +487,11 @@
               <FilePath>.\src\rx_bayang_protocol.c</FilePath>
             </File>
             <File>
+              <FileName>rx_bayang_protocol_telemetry_autobind.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\rx_bayang_protocol_telemetry_autobind.c</FilePath>
+            </File>
+            <File>
               <FileName>rx_bayang_protocol_ble.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\src\rx_bayang_protocol_ble.c</FilePath>
@@ -503,29 +512,19 @@
               <FilePath>.\src\rx_nrf24_bayang_telemetry.c</FilePath>
             </File>
             <File>
-              <FileName>rx_cg023_protocol.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\rx_cg023_protocol.c</FilePath>
-            </File>
-            <File>
-              <FileName>rx_h7_protocol.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\rx_h7_protocol.c</FilePath>
-            </File>
-            <File>
-              <FileName>rx_cx10blue_protocol.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\rx_cx10blue_protocol.c</FilePath>
-            </File>
-            <File>
               <FileName>rx_sbus.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\src\rx_sbus.c</FilePath>
             </File>
             <File>
-              <FileName>rx_sumd.c</FileName>
+              <FileName>rx_dsm.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\src\rx_sumd.c</FilePath>
+              <FilePath>.\src\rx_dsm.c</FilePath>
+            </File>
+            <File>
+              <FileName>rx_crsf.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\rx_crsf.c</FilePath>
             </File>
             <File>
               <FileName>led.c</FileName>
@@ -593,6 +592,11 @@
               <FilePath>.\src\hardware.h</FilePath>
             </File>
             <File>
+              <FileName>targets.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\src\targets.h</FilePath>
+            </File>
+            <File>
               <FileName>config.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\src\config.h</FilePath>
@@ -601,6 +605,26 @@
               <FileName>debug.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\src\debug.h</FilePath>
+            </File>
+            <File>
+              <FileName>drv_softserial.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\drv_softserial.c</FilePath>
+            </File>
+            <File>
+              <FileName>serial_4way.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\serial_4way.c</FilePath>
+            </File>
+            <File>
+              <FileName>serial_4way_stk500v2.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\serial_4way_stk500v2.c</FilePath>
+            </File>
+            <File>
+              <FileName>serial_4way_avrootloader.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\serial_4way_avrootloader.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -616,26 +640,6 @@
               <FileName>drv_clk.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\src\drv_clk.c</FilePath>
-            </File>
-            <File>
-              <FileName>drv_dshot_dma.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\drv_dshot_dma.c</FilePath>
-            </File>
-            <File>
-              <FileName>drv_dshot.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\drv_dshot.c</FilePath>
-            </File>
-            <File>
-              <FileName>drv_esc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\drv_esc.c</FilePath>
-            </File>
-            <File>
-              <FileName>drv_pwm.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\drv_pwm.c</FilePath>
             </File>
             <File>
               <FileName>drv_fmc1.c</FileName>
@@ -656,6 +660,21 @@
               <FileName>drv_i2c.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\src\drv_i2c.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_pwm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\drv_pwm.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_esc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\drv_esc.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_dshot.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\drv_dshot.c</FilePath>
             </File>
             <File>
               <FileName>drv_serial.c</FileName>
@@ -708,24 +727,9 @@
               <FilePath>.\src\drv_rgb.c</FilePath>
             </File>
             <File>
-              <FileName>drv_softserial.c</FileName>
+              <FileName>drv_dshot_dma.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\src\drv_softserial.c</FilePath>
-            </File>
-            <File>
-              <FileName>serial_4way_avrootloader.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\serial_4way_avrootloader.c</FilePath>
-            </File>
-            <File>
-              <FileName>serial_4way_stk500v2.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\serial_4way_stk500v2.c</FilePath>
-            </File>
-            <File>
-              <FileName>serial_4way.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\serial_4way.c</FilePath>
+              <FilePath>.\src\drv_dshot_dma.c</FilePath>
             </File>
           </Files>
         </Group>

@@ -1,6 +1,11 @@
 
+#include "targets.h"
+
+
 // HARDWARE PINS SETTING
 //
+
+
 // do not change hardware pins below
 // make sure you don't set SWDIO or SWDCLK pins (programming pins)
 // if you do, you lose board programmability without a reset pin
@@ -31,35 +36,12 @@
 
 
 
-
-#define LED_NUMBER 2
-
-#define LED1PIN GPIO_Pin_2
-#define LED1PORT GPIOA
-
-#define LED2PIN GPIO_Pin_3
-#define LED2PORT GPIOA
-
-
-
-
-// invert - leds turn on when high
-#define LED1_INVERT
-#define LED2_INVERT
-
-
-// softi2c pins definitons:
-// sda - out/in , sck - out
-
 // i2c driver to use ( dummy - disables i2c )
 // hardware i2c used PB6 and 7 by default ( can also use PA9 and 10)
-
 //#define USE_HARDWARE_I2C
-#define USE_SOFTWARE_I2C
+//#define USE_SOFTWARE_I2C
 //#define USE_DUMMY_I2C
 
-// for boards without a SCL pullup - E011 ( nonstandard i2c )
-//#define SOFTI2C_PUSHPULL_CLK
 
 // I2C speed: fast = no delays 
 // slow1 = for i2c without pull-up resistors
@@ -68,111 +50,63 @@
 //#define SOFTI2C_SPEED_SLOW1
 //#define SOFTI2C_SPEED_SLOW2
 
+
 // hardware i2c speed ( 1000, 400 , 200 , 100Khz)
 #define HW_I2C_SPEED_FAST2
 //#define HW_I2C_SPEED_FAST
 //#define HW_I2C_SPEED_SLOW1
 //#define HW_I2C_SPEED_SLOW2
 
+
 // pins for hw i2c , select one only
 // select pins PB6 and PB7 OR select pins PA9 and PA10
 //#define HW_I2C_PINS_PB67
 #define HW_I2C_PINS_PA910
 
+// pins for software i2c
 #define SOFTI2C_SDAPIN GPIO_Pin_10
 #define SOFTI2C_SDAPORT GPIOA
-
 #define SOFTI2C_SCLPIN GPIO_Pin_9
 #define SOFTI2C_SCLPORT GPIOA
-
 #define SOFTI2C_GYRO_ADDRESS 0x68
-//#define SOFTI2C_GYRO_ADDRESS 0x69
+
 
 // disable the check for known gyro that causes the 4 times flash
 //#define DISABLE_GYRO_CHECK
 
-// gyro ids for the gyro check
-#define GYRO_ID_1 0x68
-#define GYRO_ID_2 0x98 // new id
-#define GYRO_ID_3 0x7D
-#define GYRO_ID_4 0x72
-
-
-// gyro orientation
-// the expected orientation is with the dot in the front-left corner
-// use this to rotate to the correct orientation 
-// rotations performed in order
-// note, the motors don't get rotated,
-// so they have to be referenced to the new gyro position
-//#define SENSOR_ROTATE_45_CCW
-//#define SENSOR_ROTATE_45_CW
-#define SENSOR_ROTATE_90_CW
-//#define SENSOR_ROTATE_90_CCW
-//#define SENSOR_ROTATE_180
-//#define SENSOR_FLIP_180
+// TODO: gyro ids for the gyro check
+//move to sixaxis & defines.h
 
 
 // disable lvc functions
 //#define DISABLE_LVC
-
-// Analog battery input pin and adc channel
-
-#define BATTERYPIN GPIO_Pin_5
-#define BATTERYPORT GPIOA
-#define BATTERY_ADC_CHANNEL ADC_Channel_5
-
-// default for 1/2 divider
-// change this factor to get a correct battery voltage
-#define ADC_SCALEFACTOR 0.001364
-
-
-// SPI PINS DEFINITONS ( for radio ic )
-// MOSI , CLK , SS - outputs , MISO input
-
-
-#define SPI_MOSI_PIN GPIO_Pin_0
-#define SPI_MOSI_PORT GPIOA
-
-//#define SPI_MISO_PIN GPIO_Pin_15
-//#define SPI_MISO_PORT GPIOA
-
-#define SPI_CLK_PIN GPIO_Pin_1
-#define SPI_CLK_PORT GPIOF
-
-#define SPI_SS_PIN GPIO_Pin_0
-#define SPI_SS_PORT GPIOF
-
-//spi type
-#define SOFTSPI_3WIRE
-//#define SOFTSPI_4WIRE
-//#define SOFTSPI_NONE
-
-// check for radio chip ( 3 times flash = not found)
-#define RADIO_CHECK
-
-// radio type
-//#define RADIO_XN297
-#define RADIO_XN297L
-
-
-
-// PWM PINS DEFINITIONS 
 
 
 // pwm driver = brushed motors
 // esc driver = servo type signal for brushless esc
 // pins PA0 - PA11 , PB0 , PB1
 
+#ifdef BRUSHLESS_CONVERSION
+	#define BRUSHLESS_TARGET
+#endif
+
 //**DO NOT ENABLE ESC DRIVER WITH BRUSHED MOTORS ATTACHED**
 
-#define USE_PWM_DRIVER
-//#define USE_ESC_DRIVER
-//#define USE_DSHOT_DMA_DRIVER
-//#define USE_DSHOT_DRIVER_BETA
+#ifdef BRUSHLESS_TARGET
+	#define USE_DSHOT_DMA_DRIVER
+	//#define USE_DSHOT_DRIVER_BETA
+	//#define USE_ESC_DRIVER
+#else
+	#define USE_PWM_DRIVER
+#endif
 
-// pass thru used with 1 of the above selections
+
+
+
+
+//FC must have MOSFETS and motor pulldown resistors removed. MAY NOT WORK WITH ALL ESCS
 //#define USE_SERIAL_4WAY_BLHELI_INTERFACE
-
+		
 		
 // pwm pins disable
 // disable all pwm pins / function
@@ -196,37 +130,16 @@
 #define PWM_PB1
 
 
-// Assingment of pin to motor
-// Assign one pin to one motor
-// pins PA0 - PA11 , PB0 , PB1
-
-// back-left motor ( motor 0 )
-#define MOTOR0_PIN_PB1
-
-// front-left motor ( motor 1 )
-#define MOTOR1_PIN_PA4
-
-// back-right motor ( motor 2 )
-#define MOTOR2_PIN_PA6
-
-// front-right motor ( motor 3 )
-#define MOTOR3_PIN_PA7
-
-
-
-
-
-
-
 // RGB led type ws2812 - ws2813
 // numbers over 8 could decrease performance
 #define RGB_LED_NUMBER 0
-
 #define RGB_LED_DMA
+
 
 // pin / port for the RGB led ( programming port ok )
 #define RGB_PIN GPIO_Pin_11
 #define RGB_PORT GPIOA
+
 
 // pin for fpv switch ( turns off at failsafe )
 // GPIO_Pin_13 // SWDAT - GPIO_Pin_14 // SWCLK  
@@ -238,7 +151,7 @@
 // BUZZER pin settings - buzzer active "high"
 // SWDAT and SWCLK pins OK here
 // GPIO_Pin_13 // SWDAT - GPIO_Pin_14 // SWCLK 
-#define BUZZER_PIN       GPIO_Pin_x 
+#define BUZZER_PIN       GPIO_Pin_14
 #define BUZZER_PIN_PORT  GPIOA
 // x (micro)seconds after loss of tx or low bat before buzzer starts
 #define BUZZER_DELAY     30e6 
